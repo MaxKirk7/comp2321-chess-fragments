@@ -21,7 +21,7 @@ def execute_move_onboard(board,piece,move):
 class Node:
     """PLAYER should be set before a node is created. to know who to optimise minimax for"""
     PLAYER = None
-    _expanded_states = {}
+    _transposition_table = {} # maps board signature to nodes
     def __init__(self, board, parent=None, move=None, max_depth = 3):
         """board = current state of board
         parent = parent node
@@ -31,11 +31,12 @@ class Node:
         depth = current nodes depth in tree"""
         
         self.board = board
-        self.parent = parent #[] if parent is None else [parent] #! same board state can come from many paths so possibly multiple parents
+        self.parent = [] if parent is None else [parent] #! same board state can come from many paths so possibly multiple parents
         self.move = move
         self.children = []
         self.value = 0
         self.depth = 0 if parent == None else parent.depth + 1
+        self.board_signature = self._setBoardSignature()
         if self._isTerminal(): # do not continue to recurse if terminal
             if cannot_move(self.board):
                 self.value = inf
@@ -56,13 +57,37 @@ class Node:
         if self.depth >= max_depth:
             return
         
+        Node._transposition_table[self._getBoardSignature()] = self
+
         player_to_expand = self.board.current_player
 
         for piece, move in list_legal_moves_for(self.board, player_to_expand):
             new_board = execute_move_onboard(self.board, piece, move)
 
             if new_board:
-                if new_board in Node._expanded_states:
-                    Node._expanded_states[new_board] += 1
+                child_signature = self._calculateSignature(new_board)
+                # if child's signature already exists link and dont create new node
+                if child_signature in Node._transposition_table:
+                    existing_child = Node._transposition_table[child_signature]
+                    if self not in existing_child.parent:
+                        existing_child.parent.append(self)
+                    self.children.append(existing_child)
+                    continue
                 child = Node(new_board, parent=self, move=move, max_depth=max_depth)
                 self.children.append(child)
+
+
+    def _calculateSignature(self, board):
+        """calculates hashsable signature for given board"""
+        parts = []
+        for piece in board.get_pieces():
+            sig = f"{piece.position.x}{piece.position.y}{piece.player.name[0]}{piece.name[0]}"
+            parts.append(sig)
+        
+        parts.sort()
+        parts.append(f"Turn:{board.current_player}")
+        return "|".join(parts)
+        
+    
+    def _setBoardSignature(self):
+        return self._calculateSignature(self.board)
