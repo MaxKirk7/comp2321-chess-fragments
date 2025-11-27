@@ -1,18 +1,21 @@
+from math import inf
 from extension.board_rules import get_result, cannot_move
 from extension.board_utils import list_legal_moves_for, copy_piece_move, take_notes
-from math import inf
 
 def execute_move_onboard(board,piece,move):
-    """creates a new board stae by cloning given board and applying move"""
+    """creates a new board state by cloning given board and applying move"""
     try:
         temp_board = board.clone()
         _ , temp_piece, temp_move = copy_piece_move(temp_board, piece, move)
         if temp_piece and temp_move:
             temp_piece.move(temp_move)
+            try:
+                next(temp_board.turn_iterator)
+            except StopIteration:
+                take_notes("failed to iterate to next player")
             return temp_board
-        else:
-            take_notes(f"Error, no piece or move for {piece.name} at {piece.position}")
-            return None
+        take_notes(f"Error, no piece or move for {piece.name} at {piece.position}")
+        return None
     except AttributeError as e:
         take_notes(f"Fatal: {e}")
         return None
@@ -29,24 +32,26 @@ class Node:
         children = list of child nodes
         value = evaluated value of this node
         depth = current nodes depth in tree"""
-        
         self.board = board
-        self.parent = [] if parent is None else [parent] #! same board state can come from many paths so possibly multiple parents
+        #! same board state can come from many paths so possibly multiple parents
+        self.parent = [] if parent is None else [parent]
         self.move = move
         self.children = []
         self.value = 0
-        self.depth = 0 if parent == None else parent.depth + 1
-        self.board_signature = self._setBoardSignature()
-        if self._isTerminal(): # do not continue to recurse if terminal
+        self.depth = 0 if parent is None else parent.depth + 1
+        self.board_signature = self._set_board_signature()
+        if self.board_signature not in Node._transposition_table:
+            Node._transposition_table[self.board_signature] = self
+
+        if self._is_terminal(): # do not continue to recurse if terminal
             if cannot_move(self.board):
                 self.value = inf
             else:
                 self.value = -inf
             return
-        else:
-            self._expand(max_depth)
+        self._expand(max_depth)
 
-    def _isTerminal(self) -> bool:
+    def _is_terminal(self) -> bool:
         """checks current board state is not terminal"""
         result = get_result(self.board)
         return result is not None #! if the opponent has no moves we win
@@ -56,38 +61,36 @@ class Node:
         #TODO sort each time in order of highest value and expand that node first if winning state stop recurse
         if self.depth >= max_depth:
             return
-        
         Node._transposition_table[self.board_signature] = self
 
         player_to_expand = self.board.current_player
-
+        # take_notes(f"D:{self.depth} found {len(list_legal_moves_for(self.board, player_to_expand))} for {player_to_expand.name}")
         for piece, move in list_legal_moves_for(self.board, player_to_expand):
             new_board = execute_move_onboard(self.board, piece, move)
 
             if new_board:
-                child_signature = self._calculateSignature(new_board)
+                child_signature = self._calculate_signature(new_board)
                 # if child's signature already exists link and dont create new node
                 if child_signature in Node._transposition_table:
                     existing_child = Node._transposition_table[child_signature]
                     if self not in existing_child.parent:
                         existing_child.parent.append(self)
                     self.children.append(existing_child)
+                    # take_notes(f"D{self.depth} Linked existing child (D{existing_child.depth}) via transposition.")
                     continue
                 child = Node(new_board, parent=self, move=move, max_depth=max_depth)
                 self.children.append(child)
+        # take_notes(f"--- EXPANSION COMPLETE D{self.depth}. Total children: {len(self.children)} ---")
 
-
-    def _calculateSignature(self, board):
+    def _calculate_signature(self, board):
         """calculates hashable signature for given board"""
         parts = []
         for piece in board.get_pieces():
             sig = f"{piece.position.x}{piece.position.y}{piece.player.name[0]}{piece.name[0]}"
             parts.append(sig)
-        
         parts.sort()
-        parts.append(f"Turn:{board.current_player}")
+        parts.append(f"Turn:{board.current_player.name[0]}")
         return "|".join(parts)
-        
-    
-    def _setBoardSignature(self):
-        return self._calculateSignature(self.board)
+
+    def _set_board_signature(self):
+        return self._calculate_signature(self.board)
