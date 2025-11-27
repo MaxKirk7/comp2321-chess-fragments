@@ -28,7 +28,7 @@ def test_node_initialise(start_board):
     board, players = start_board
     node = Node(board)
     assert node.board == board
-    assert node.parent is None
+    assert node.parent == []
     assert node.depth == 0
     assert node.value == 0
     assert len(node.children) > 0, "node should have expanded once initialised"
@@ -36,7 +36,7 @@ def test_node_initialise(start_board):
 
 def test_initial_expansion(start_board):
     board, players = start_board
-    root = Node(board)
+    root = Node(board, max_depth=1)
     root.children = []
     root._expand(1)
     assert len(root.children) == 7 , f"length: {len(root.children)}"
@@ -45,4 +45,4 @@ def test_initial_expansion(start_board):
         assert child.depth == 1
         if child.children:
             assert child.children[0].depth == 2
-            assert child.children[0].parent == child
+            assert child in child.children[0].parent

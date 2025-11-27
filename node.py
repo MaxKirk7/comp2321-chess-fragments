@@ -57,7 +57,7 @@ class Node:
         if self.depth >= max_depth:
             return
         
-        Node._transposition_table[self._getBoardSignature()] = self
+        Node._transposition_table[self.board_signature] = self
 
         player_to_expand = self.board.current_player
 
@@ -78,7 +78,7 @@ class Node:
 
 
     def _calculateSignature(self, board):
-        """calculates hashsable signature for given board"""
+        """calculates hashable signature for given board"""
         parts = []
         for piece in board.get_pieces():
             sig = f"{piece.position.x}{piece.position.y}{piece.player.name[0]}{piece.name[0]}"
