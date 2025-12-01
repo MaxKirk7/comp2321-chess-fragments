@@ -28,7 +28,6 @@ class Node:
                 self.value = inf  # winning move
             else:
                 self.value = -inf  # loosing move
-            return
 
     def _is_terminal(self) -> bool:
         """checks current board state is not terminal"""
