@@ -41,7 +41,8 @@ def test_node_initialise(start_board):
 def test_initial_expansion(start_board):
     board, _ = start_board
     root = Node(board, max_depth=2)
-    assert len(root.children) == 7 , f"length: {len(root.children)}"
+    moves = list_legal_moves_for(board, board.current_player)
+    assert len(root.children) == len(moves) , f"length: {len(root.children)}"
     if root.children:
         child = root.children[0]
         assert child.depth == 1
@@ -55,3 +56,4 @@ def test_children_created(start_board):
     root = Node(board, max_depth=depth)
     assert len(Node._transposition_table) > 8, f"expanded up to depth {depth}, creating {len(Node._transposition_table) - 1} nodes (not root)"
     print(f"expanding to depth {depth} created {len(Node._transposition_table)} unique nodes")
+    print(f"there were {Node.dupes} duplicates out of {Node.nodes} nodes")

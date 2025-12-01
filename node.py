@@ -25,6 +25,8 @@ class Node:
     """PLAYER should be set before a node is created. to know who to optimise minimax for"""
     PLAYER = None
     _transposition_table = {} # maps board signature to nodes
+    dupes = 0
+    nodes = 0
     def __init__(self, board, parent=None, move=None, max_depth = 3):
         """board = current state of board
         parent = parent node
@@ -32,8 +34,9 @@ class Node:
         children = list of child nodes
         value = evaluated value of this node
         depth = current nodes depth in tree"""
+        Node.nodes += 1
         self.board = board
-        #! same board state can come from many paths so possibly multiple parents
+        # same board state can come from many paths so possibly multiple parents
         self.parent = [] if parent is None else [parent]
         self.move = move
         self.children = []
@@ -45,16 +48,16 @@ class Node:
 
         if self._is_terminal(): # do not continue to recurse if terminal
             if cannot_move(self.board):
-                self.value = inf
+                self.value = inf # winning move
             else:
-                self.value = -inf
+                self.value = -inf # loosing move
             return
         self._expand(max_depth)
 
     def _is_terminal(self) -> bool:
         """checks current board state is not terminal"""
         result = get_result(self.board)
-        return result is not None #! if the opponent has no moves we win
+        return result is not None
 
     def _expand(self, max_depth):
         """expand legal moves and create children that aren't terminal"""
@@ -77,16 +80,22 @@ class Node:
                         existing_child.parent.append(self)
                     self.children.append(existing_child)
                     # take_notes(f"D{self.depth} Linked existing child (D{existing_child.depth}) via transposition.")
+                    Node.dupes += 1
                     continue
                 child = Node(new_board, parent=self, move=move, max_depth=max_depth)
                 self.children.append(child)
         # take_notes(f"--- EXPANSION COMPLETE D{self.depth}. Total children: {len(self.children)} ---")
 
     def _calculate_signature(self, board):
+        #! there are not any repeated states up to at least depth 3
         """calculates hashable signature for given board"""
+        def get_piece_letter(piece):
+            """returns upper case for black lower case for white"""
+            base = piece.name[0].upper()
+            return base.lower() if piece.player.name == "white" else base
         parts = []
         for piece in board.get_pieces():
-            sig = f"{piece.position.x}{piece.position.y}{piece.player.name[0]}{piece.name[0]}"
+            sig = f"{piece.position.x}{piece.position.y}{get_piece_letter(piece)}"
             parts.append(sig)
         parts.sort()
         parts.append(f"Turn:{board.current_player.name[0]}")
