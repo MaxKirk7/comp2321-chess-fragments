@@ -2,31 +2,13 @@ from math import inf
 from extension.board_rules import get_result, cannot_move
 from extension.board_utils import list_legal_moves_for, copy_piece_move, take_notes
 
-def execute_move_onboard(board,piece,move):
-    """creates a new board state by cloning given board and applying move"""
-    try:
-        temp_board = board.clone()
-        _ , temp_piece, temp_move = copy_piece_move(temp_board, piece, move)
-        if temp_piece and temp_move:
-            temp_piece.move(temp_move)
-            try:
-                next(temp_board.turn_iterator)
-            except StopIteration:
-                take_notes("failed to iterate to next player")
-            return temp_board
-        take_notes(f"Error, no piece or move for {piece.name} at {piece.position}")
-        return None
-    except AttributeError as e:
-        take_notes(f"Fatal: {e}")
-        return None
+
 
 
 class Node:
     """PLAYER should be set before a node is created. to know who to optimise minimax for"""
     PLAYER = None
     _transposition_table = {} # maps board signature to nodes
-    dupes = 0
-    nodes = 0
     def __init__(self, board, parent=None, move=None, max_depth = 3):
         """board = current state of board
         parent = parent node
@@ -34,7 +16,6 @@ class Node:
         children = list of child nodes
         value = evaluated value of this node
         depth = current nodes depth in tree"""
-        Node.nodes += 1
         self.board = board
         # same board state can come from many paths so possibly multiple parents
         self.parent = [] if parent is None else [parent]
@@ -61,13 +42,31 @@ class Node:
 
     def _expand(self, max_depth):
         """expand legal moves and create children that aren't terminal"""
+
+        def execute_move_onboard(board,piece,move):
+            """creates a new board state by cloning given board and applying move"""
+            try:
+                temp_board = board.clone()
+                _ , temp_piece, temp_move = copy_piece_move(temp_board, piece, move)
+                if temp_piece and temp_move:
+                    temp_piece.move(temp_move)
+                    try:
+                        next(temp_board.turn_iterator)
+                    except StopIteration:
+                        take_notes("failed to iterate to next player")
+                    return temp_board
+                take_notes(f"Error, no piece or move for {piece.name} at {piece.position}")
+                return None
+            except AttributeError as e:
+                take_notes(f"Fatal: {e}")
+                return None
+
         #TODO sort each time in order of highest value and expand that node first if winning state stop recurse
         if self.depth >= max_depth:
             return
         Node._transposition_table[self.board_signature] = self
 
         player_to_expand = self.board.current_player
-        # take_notes(f"D:{self.depth} found {len(list_legal_moves_for(self.board, player_to_expand))} for {player_to_expand.name}")
         for piece, move in list_legal_moves_for(self.board, player_to_expand):
             new_board = execute_move_onboard(self.board, piece, move)
 
@@ -79,15 +78,11 @@ class Node:
                     if self not in existing_child.parent:
                         existing_child.parent.append(self)
                     self.children.append(existing_child)
-                    # take_notes(f"D{self.depth} Linked existing child (D{existing_child.depth}) via transposition.")
-                    Node.dupes += 1
                     continue
                 child = Node(new_board, parent=self, move=move, max_depth=max_depth)
                 self.children.append(child)
-        # take_notes(f"--- EXPANSION COMPLETE D{self.depth}. Total children: {len(self.children)} ---")
 
     def _calculate_signature(self, board):
-        #! there are not any repeated states up to at least depth 3
         """calculates hashable signature for given board"""
         def get_piece_letter(piece):
             """returns upper case for black lower case for white"""
@@ -103,3 +98,6 @@ class Node:
 
     def _set_board_signature(self):
         return self._calculate_signature(self.board)
+
+    def start(self, depth = 3):
+        pass

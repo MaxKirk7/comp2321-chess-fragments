@@ -56,4 +56,3 @@ def test_children_created(start_board):
     root = Node(board, max_depth=depth)
     assert len(Node._transposition_table) > 8, f"expanded up to depth {depth}, creating {len(Node._transposition_table) - 1} nodes (not root)"
     print(f"expanding to depth {depth} created {len(Node._transposition_table)} unique nodes")
-    print(f"there were {Node.dupes} duplicates out of {Node.nodes} nodes")
