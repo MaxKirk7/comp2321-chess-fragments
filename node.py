@@ -23,13 +23,13 @@ class Node:
         if self.board_signature not in Node._transposition_table:
             Node._transposition_table[self.board_signature] = self
 
-        if self._is_terminal():  # do not continue to recurse if terminal
+        if self.is_terminal():  # do not continue to recurse if terminal
             if cannot_move(self.board):
                 self.value = inf  # winning move
             else:
                 self.value = -inf  # loosing move
 
-    def _is_terminal(self) -> bool:
+    def is_terminal(self) -> bool:
         """checks current board state is not terminal"""
         result = get_result(self.board)
         return result is not None
@@ -57,7 +57,7 @@ class Node:
                         existing_child.parent.append(self)
                     self.children.append(existing_child)
                     continue
-                child = Node(new_board, parent=self, move=move, max_depth=max_depth)
+                child = Node(new_board, parent=self, move=(piece, move), max_depth=max_depth)
                 self.children.append(child)
 
     def _calculate_signature(self, board):
