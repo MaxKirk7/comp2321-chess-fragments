@@ -8,7 +8,7 @@ class Search:
     def __init__(self, root_board, player_to_optimise, maximum_depth = 3):
         self._agent_player = player_to_optimise
         self.max_depth = maximum_depth
-        self._root = Node(root_board, max_depth= self.max_depth)
+        self._root = Node(root_board)
 
     def start(self):
         # first find highest potential value
@@ -42,6 +42,8 @@ class Search:
         return material_score
 
     def _minimax(self, node: Node, alpha:float, beta: float) -> float:
+        if node.board_signature in Node.transposition_table:
+            return Node.transposition_table[node.board_signature].value
         # base -> if at maximum depth / terminal return the current value
         if node.depth >= self.max_depth or node.is_terminal():
             if not node.is_terminal():
