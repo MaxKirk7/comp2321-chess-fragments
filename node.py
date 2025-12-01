@@ -4,10 +4,12 @@ from extension.board_utils import list_legal_moves_for, copy_piece_move, take_no
 
 
 class Node:
-    """"represents a single state in the game tree"""
+    """ "represents a single state in the game tree"""
+
     PLAYER = None
-    _transposition_table = {} # maps board signature to nodes
-    def __init__(self, board, parent=None, move=None, max_depth = 3):
+    _transposition_table = {}  # maps board signature to nodes
+
+    def __init__(self, board, parent=None, move=None, max_depth=3):
         """initialise a new node -> non-automatic expansion"""
         self.board = board
         # same board state can come from many paths so possibly multiple parents
@@ -21,11 +23,11 @@ class Node:
         if self.board_signature not in Node._transposition_table:
             Node._transposition_table[self.board_signature] = self
 
-        if self._is_terminal(): # do not continue to recurse if terminal
+        if self._is_terminal():  # do not continue to recurse if terminal
             if cannot_move(self.board):
-                self.value = inf # winning move
+                self.value = inf  # winning move
             else:
-                self.value = -inf # loosing move
+                self.value = -inf  # loosing move
             return
 
     def _is_terminal(self) -> bool:
@@ -37,25 +39,7 @@ class Node:
         """expand legal moves and create children that aren't terminal, up to depth
         and hasn't already been expanded"""
 
-        def execute_move_onboard(board,piece,move):
-            """creates a new board state by cloning given board and applying move"""
-            try:
-                temp_board = board.clone()
-                _ , temp_piece, temp_move = copy_piece_move(temp_board, piece, move)
-                if temp_piece and temp_move:
-                    temp_piece.move(temp_move)
-                    try:
-                        next(temp_board.turn_iterator)
-                    except StopIteration:
-                        take_notes("failed to iterate to next player")
-                    return temp_board
-                take_notes(f"Error, no piece or move for {piece.name} at {piece.position}")
-                return None
-            except AttributeError as e:
-                take_notes(f"Fatal: {e}")
-                return None
-
-        #TODO sort each time in order of highest value and expand that node first if winning state stop recurse
+        # TODO sort each time in order of highest value and expand that node first if winning state stop recurse
         # if has children (already expanded) or reached max depth don't expand
         if self.children or self.depth >= max_depth:
             return
@@ -79,10 +63,12 @@ class Node:
 
     def _calculate_signature(self, board):
         """calculates hashable signature for given board"""
+
         def get_piece_letter(piece):
             """returns upper case for black lower case for white"""
             base = piece.name[0].upper()
             return base.lower() if piece.player.name == "white" else base
+
         parts = []
         for piece in board.get_pieces():
             sig = f"{piece.position.x}{piece.position.y}{get_piece_letter(piece)}"
@@ -93,3 +79,22 @@ class Node:
 
     def _set_board_signature(self):
         return self._calculate_signature(self.board)
+
+
+def execute_move_onboard(board, piece, move):
+    """creates a new board state by cloning given board and applying move"""
+    try:
+        temp_board = board.clone()
+        _, temp_piece, temp_move = copy_piece_move(temp_board, piece, move)
+        if temp_piece and temp_move:
+            temp_piece.move(temp_move)
+            try:
+                next(temp_board.turn_iterator)
+            except StopIteration:
+                take_notes("failed to iterate to next player")
+            return temp_board
+        take_notes(f"Error, no piece or move for {piece.name} at {piece.position}")
+        return None
+    except AttributeError as e:
+        take_notes(f"Fatal: {e}")
+        return None
