@@ -6,7 +6,7 @@ from extension.board_utils import list_legal_moves_for, copy_piece_move, take_no
 
 
 class Node:
-    """PLAYER should be set before a node is created. to know who to optimise minimax for"""
+    """"represents a single state in the game tree"""
     PLAYER = None
     _transposition_table = {} # maps board signature to nodes
     def __init__(self, board, parent=None, move=None, max_depth = 3):

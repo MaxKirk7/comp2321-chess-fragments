@@ -5,9 +5,10 @@ from node import Node
 
 class Search:
     """employs minimax and alpha beta on a root node to assess best move"""
-    def __init__(self, root_board, player_to_optimise):
+    def __init__(self, root_board, player_to_optimise, maximum_depth = 4):
         self._agent_player = player_to_optimise
-        self._root = Node(root_board)
+        self.max_depth = maximum_depth
+        self._root = Node(root_board, max_depth= self.max_depth)
 
     def start(self):
         pass
