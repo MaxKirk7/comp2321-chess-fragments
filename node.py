@@ -19,7 +19,7 @@ class Node:
         self.parent = [] if parent is None else [parent]
         self.move = move
         self.children = []
-        self.value = 0
+        self.value = None
         self.depth = 0 if parent is None else parent.depth + 1
         self.board_signature = signature if signature is not None else self._calculate_zobrist_signature(self.board)
         if self.board_signature not in self.transposition_table:
@@ -58,7 +58,7 @@ class Node:
                         existing_child.parent.append(self)
                     self.children.append(existing_child)
                     continue
-                child = Node(new_board, parent=self, move=(piece, move))
+                child = Node(new_board, parent=self, move=(piece, move), signature= child_signature)
                 self.children.append(child)
 
     @classmethod
@@ -117,7 +117,7 @@ class Node:
         new_turn_key = f"turn_{new_board.current_player.name.lower()}"
         current_hash ^= cls.ZOBRIST_KEYS[new_turn_key]
 
-        # todo keys for enpeasent
+        # todo keys for en-peasent
 
         return current_hash
 
