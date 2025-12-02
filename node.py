@@ -151,7 +151,16 @@ class Node:
         """returns current nodes depth"""
         return self._depth
 
+    def get_value(self) -> float:
+        """return current nodes value"""
+        return self._value
+
+    def set_value(self, value) -> None:
+        """set node value to given value"""
+        self._value = value
+
     def set_depth(self, new_depth) -> None:
+        """set currents node depth to given value"""
         self._depth = new_depth
 
     def is_root(self) -> bool:
@@ -162,6 +171,18 @@ class Node:
         """returns if the current board state is leaf"""
         result = get_result(self.get_board())
         return result is not None
+
+    def has_children(self) -> bool:
+        """returns true if node has children"""
+        return len(self.get_children()) > 0
+
+    def get_children(self) -> list['Node']:
+        """returns nodes list of children"""
+        return self._children
+
+    def get_move(self) -> tuple[Piece, MoveOption]:
+        """return move that led to this node"""
+        return self._move
 
     def expand(self, max_depth: int):
         """expand children of current node as long as depth not reached,
