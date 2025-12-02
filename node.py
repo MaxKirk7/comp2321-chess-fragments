@@ -2,8 +2,20 @@ from math import inf
 from random import getrandbits
 from extension.board_rules import get_result, cannot_move
 from extension.board_utils import list_legal_moves_for, copy_piece_move, take_notes
-from chessmaker.chess.base import Board, Piece, MoveOption, Square
+from chessmaker.chess.base import Board, Piece, MoveOption
 
+
+def execute_move_onboard(board: Board, piece: Piece, move: MoveOption):
+    """helper that create clone of current board but with pieces moved"""
+    try:
+        new_board = board.clone()
+        if piece and move:
+            piece.move(move)
+            new_board.current_player = next(new_board.turn_iterator)
+        return new_board
+    except AttributeError as e:
+        take_notes(f"fatal error {e}")
+        return None
 
 class Node:
     """represent single state in game tree"""
@@ -44,25 +56,18 @@ class Node:
 
     @classmethod
     def _calculate_zobrist_signature(cls, node: "Node") -> None:
-        """calculate and set nodes signature using xor (^=) operations
-        , incremental calculation if has a parent"""
-        if not node.is_root():
-            # incremental zobrist
-            node.node_signature = cls._calculate_incremental_signature(
-                node, node.parent
-            )
-        else:
+        """calculate and set nodes signature using xor (^=) operations for ROOT"""
             # calculate new signature
-            board = node.get_board()
-            z_hash = 0
-            for piece in board.get_pieces():
-                key = cls._get_piece_key(piece)
-                try:
-                    z_hash ^= cls._zobrist_keys[key]
-                except KeyError:
-                    take_notes(f"missing key for {key}")
-            z_hash ^= cls._zobrist_keys[cls._get_player_turn_key(board)]
-            node.node_signature = z_hash
+        board = node.get_board()
+        z_hash = 0
+        for piece in board.get_pieces():
+            key = cls._get_piece_key(piece)
+            try:
+                z_hash ^= cls._zobrist_keys[key]
+            except KeyError:
+                take_notes(f"missing key for {key}")
+        z_hash ^= cls._zobrist_keys[cls._get_player_turn_key(board)]
+        node.node_signature = z_hash
 
     @classmethod
     def _calculate_incremental_signature(
@@ -103,7 +108,7 @@ class Node:
         return z_hash
 
 
-    def __init__(self, board, parent=None, move=None, signature: int = None):
+    def __init__(self, board: Board, parent: 'Node'=None, move: tuple[Piece, MoveOption]=None, signature: int = None):
         """initialise new node"""
         if not Node._zobrist_keys:
             Node._initialise_zobrist_keys()
@@ -114,7 +119,7 @@ class Node:
         self._value: float | None = None
         self._depth: int = 0 if parent is None else parent.depth + 1
         self.node_signature: float = (
-            self._calculate_zobrist_signature() if signature is None else signature
+            self._calculate_zobrist_signature(self) if signature is None else signature
         )
         # if node signature has not already been seen add new instance
         if self.node_signature not in Node.transposition_table:
@@ -126,8 +131,40 @@ class Node:
             else:
                 self.value = -inf  # looses game
 
-    def get_board(self):
+    def get_board(self) -> Board:
+        """return current nodes board"""
         return self._board
 
     def is_root(self) -> bool:
+        """returns true if current node is root"""
         return not self.parent
+
+    def is_terminal(self) -> bool:
+        """returns if the current board state is leaf"""
+        result = get_result(self.get_board)
+        return result is not None
+    
+    def expand(self, max_depth: int):
+        """expand children of current node as long as depth not reached,
+        add signature if not already expanded, else link nodes"""
+        # if has children already expanded, or max depth then dont expand
+        if self._children or self._depth >= max_depth:
+            return
+        board = self.get_board()
+        player_to_expand = board.current_player
+        moves_to_expand = list_legal_moves_for(board, player_to_expand)
+        for piece, move in moves_to_expand:
+            if new_board := execute_move_onboard(board, piece, move):
+                child_signature = self._calculate_incremental_signature(self, piece, move, new_board)
+                # if child signature already exists link and dont create new node
+                if child_signature in Node.transposition_table:
+                    existing_child = Node.transposition_table[child_signature]
+                    # if not already a child in parent
+                    if self not in existing_child.parent:
+                        existing_child.parent.append(self)
+                    # add child to current node
+                    self._children.append(existing_child)
+                    continue
+                # if new node create and add to child
+                child = Node(new_board, parent=self, move=(piece,move), signature= child_signature)
+                self._children.append(child)
