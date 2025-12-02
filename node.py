@@ -100,7 +100,7 @@ class Node:
             else:
                 take_notes(f"no piece at capture location {captured_pos}")
         # xor out last players turn
-        old_turn_key = cls._get_player_turn_key(parent.board)
+        old_turn_key = cls._get_player_turn_key(parent.get_board())
         z_hash ^= cls._zobrist_keys[old_turn_key]
         # xor in pieces new position
         new_pos = move_opt.position
@@ -129,7 +129,8 @@ class Node:
         self.parent: list[Node] = [] if parent is None else [parent]
         self._children: list[Node] = []
         self._value: float | None = None
-        self._depth: int = 0 if parent is None else parent.depth + 1
+        self._depth: int = 0 if parent is None else parent.get_depth() + 1
+        self._search_depth : int = 0
         self.node_signature: int = (
             Node._calculate_zobrist_signature(self) if signature is None else signature
         )
@@ -150,16 +151,21 @@ class Node:
     def get_depth(self) -> int:
         """returns current nodes depth"""
         return self._depth
+    
+    def get_search_depth(self) -> int:
+        """returns search depth that set this nodes value"""
+        return self._search_depth
 
     def get_value(self) -> float:
         """return current nodes value"""
         return self._value
 
-    def set_value(self, value) -> None:
+    def set_value(self, value: float, search_depth: int) -> None:
         """set node value to given value"""
         self._value = value
+        self._search_depth = search_depth
 
-    def set_depth(self, new_depth) -> None:
+    def set_depth(self, new_depth: int) -> None:
         """set currents node depth to given value"""
         self._depth = new_depth
 
