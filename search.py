@@ -1,5 +1,7 @@
 from math import inf
+from time import time
 from chessmaker.chess.base import Board, Piece, MoveOption, Player
+from extension.board_utils import take_notes
 from node import Node
 class Search:
     """optimise for best move in game tree"""
@@ -19,6 +21,22 @@ class Search:
         self._agent_player : Player = player_to_optimise
         self._max_depth : int = maximum_depth
         self._root : Node = Node(root_board)
+
+    def start(self) -> tuple[Piece, MoveOption]:
+        """find best move within time budget"""
+        self._start_time = time()
+        best_overall_move = None
+        current_depth = 1 # start search at depth 1
+        while True:
+            if self._stop_search or current_depth > 10: # cap depth jic
+                take_notes(f"ended search at depth {current_depth}")
+                break
+            take_notes(f"beginning search at depth {current_depth}")
+            # store best for current depth
+            temp_best = self._minimax(self._root, -inf, inf, max_depth_limit = current_depth)
+            if self._stop_search:
+                take_notes(f"d {current_depth} time ran out")
+    
 
     def start(self) -> tuple[Piece, MoveOption]:
         """find and return most optimal move"""
