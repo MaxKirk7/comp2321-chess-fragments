@@ -28,8 +28,12 @@ class Node:
     """represent single state in game tree"""
 
     _zobrist_keys: dict[str, int] = {}
-    transposition_table: dict[int, "Node"] = {}  # map board z_hash to node
+    transposition_table: dict[int, dict] = {}  # map board z_hash to node
     _RANDBITS: int = 64
+    # TT flags
+    FLAG_EXACT = 0
+    FLAG_LOWERBOUND = 1 # beta cut off
+    FLAG_UPPERBOUND = 2 # alpha cut off
 
     # todo add en-peasant keys to class methods
     @classmethod
@@ -124,25 +128,16 @@ class Node:
         """initialise new node"""
         if not Node._zobrist_keys:
             Node._initialise_zobrist_keys()
+
         self._board: Board = board
         self._move: tuple[Piece, MoveOption] = move
-        self.parent: list[Node] = [] if parent is None else [parent]
         self._children: list[Node] = []
-        self._value: float | None = None
         self._depth: int = 0 if parent is None else parent.get_depth() + 1
-        self._search_depth : int = 0
-        self.node_signature: int = (
-            Node._calculate_zobrist_signature(self) if signature is None else signature
-        )
-        # if node signature has not already been seen add new instance
-        if self.node_signature not in Node.transposition_table:
-            Node.transposition_table[self.node_signature] = self
-        # if terminal game ending move
-        if self.is_terminal():
-            if cannot_move(self._board):
-                self._value = inf  # wins game
-            else:
-                self._value = -inf  # looses game
+        if signature is None:
+            self.node_signature = Node._calculate_zobrist_signature(self)
+        else:
+            self.node_signature = signature
+        # add to TT when evaluating in search
 
     def get_board(self) -> Board:
         """return current nodes board"""
@@ -151,78 +146,47 @@ class Node:
     def get_depth(self) -> int:
         """returns current nodes depth"""
         return self._depth
-    
-    def get_search_depth(self) -> int:
-        """returns search depth that set this nodes value"""
-        return self._search_depth
 
-    def get_value(self) -> float:
-        """return current nodes value"""
-        return self._value
+    def get_children(self) -> list['Node']:
+        """returns nodes list of children"""
+        return self._children
 
-    def set_value(self, value: float, search_depth: int) -> None:
-        """set node value to given value"""
-        self._value = value
-        self._search_depth = search_depth
 
-    def set_depth(self, new_depth: int) -> None:
-        """set currents node depth to given value"""
-        self._depth = new_depth
+    def get_move(self) -> tuple[Piece, MoveOption]:
+        """return move that led to this node"""
+        return self._move
 
-    def is_root(self) -> bool:
-        """returns true if current node is root"""
-        return not self.parent
 
     def is_terminal(self) -> bool:
         """returns if the current board state is leaf"""
         result = get_result(self.get_board())
         return result is not None
 
-    def has_children(self) -> bool:
-        """returns true if node has children"""
-        return len(self.get_children()) > 0
 
-    def get_children(self) -> list['Node']:
-        """returns nodes list of children"""
-        return self._children
+    def store_in_tt(self, value: float, search_depth: int, flag: int):
+        """store evaluations in transposition table"""
+        Node.transposition_table[self.node_signature] = {
+            "value": value,
+            "depth": search_depth,
+            "flag": flag,
+        }
 
-    def get_move(self) -> tuple[Piece, MoveOption]:
-        """return move that led to this node"""
-        return self._move
 
     def expand(self, max_depth: int):
-        """expand children of current node as long as depth not reached,
-        add signature if not already expanded, else link nodes"""
-        # if has children already expanded, or max depth then dont expand
-        if self._children or self._depth >= max_depth:
+        """generate children nodes"""
+        if self._children:
             return
         board = self.get_board()
-        player_to_expand = board.current_player
-        moves_to_expand = list_legal_moves_for(board, player_to_expand)
+        moves_to_expand = list_legal_moves_for(board, board.current_player)
         for piece, move in moves_to_expand:
-            if copy_board := execute_move_onboard(board, piece, move):
-                child_signature = Node._calculate_incremental_signature(
-                    self, piece, move, copy_board
-                )
-                # if child signature already exists link and dont create new node
-                if child_signature in Node.transposition_table:
-                    existing_child = Node.transposition_table[child_signature]
-                    # if not already a child in parent
-                    if self not in existing_child.parent:
-                        existing_child.parent.append(self)
-
-                    new_depth = self._depth + 1
-                    if new_depth < existing_child.get_depth():
-                        existing_child.set_depth(new_depth)
-
-                    # add child to current node
-                    self._children.append(existing_child)
-                    continue
-                # if new node create and add to child
+            copy_board = execute_move_onboard(board, piece, move)
+            if copy_board:
+                # calc child signatures
+                child_signature = Node._calculate_incremental_signature(self, piece, move, copy_board)
                 child = Node(
                     copy_board,
                     parent=self,
-                    move=(piece, move),
-                    signature=child_signature,
+                    move=(piece,move),
+                    signature=child_signature
                 )
                 self._children.append(child)
