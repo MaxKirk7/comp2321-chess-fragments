@@ -1,5 +1,5 @@
 from math import inf
-from chessmaker.chess.base import Board, Piece, MoveOption, Player
+from chessmaker.chess.base import Board, Piece, MoveOption, Player, Position
 from node import Node
 
 
@@ -12,7 +12,16 @@ class Search:
         self._agent = player
         self._root = Node(root_board, agent=self._agent)
         self._max_depth = maximum_depth
+        self._set_center_square(self._agent)
     
+    @classmethod
+    def _set_center_square(cls, agent:Player):
+        if agent.name.lower() == "white":
+            cls.CENTER_SQUARES = {(2, 2), (1, 3), (2, 3), (3, 3)}
+        else:
+            cls.CENTER_SQUARES = {(2, 2), (1, 1), (2, 1), (3, 1)}
+        
+
     def start(self) -> tuple[Piece, MoveOption]:
         """iterative deepening up to max depth"""
         best_move = None
