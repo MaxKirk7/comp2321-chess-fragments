@@ -1,5 +1,6 @@
 from math import inf
-from chessmaker.chess.base import Board, Piece, MoveOption, Player, Position
+from chessmaker.chess.base import Board, Piece, MoveOption, Player
+from extension.board_utils import take_notes
 from node import Node
 
 
@@ -32,6 +33,7 @@ class Search:
             for child in self._root.get_children():
                 if child.get_value() is not None:
                     if abs(child.get_value() - root_score) < 1e-9:
+                        take_notes(child)
                         best_move = child.get_move()
                         break
 
