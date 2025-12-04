@@ -1,27 +1,8 @@
 from math import inf
 from random import getrandbits
-from extension.board_rules import get_result, cannot_move
+from extension.board_rules import get_result
 from extension.board_utils import list_legal_moves_for, take_notes, copy_piece_move
-from chessmaker.chess.base import Board, Piece, MoveOption
-
-
-def execute_move_onboard(board, piece, move):
-    """creates a new board state by cloning given board and applying move"""
-    try:
-        copy_board = board.clone()
-        _, copy_piece, copy_move = copy_piece_move(copy_board, piece, move)
-        if copy_piece and copy_move:
-            copy_piece.move(copy_move)
-            try:
-                copy_board.current_player = next(copy_board.turn_iterator)
-            except StopIteration:
-                take_notes("failed to iterate to next player")
-            return copy_board
-        take_notes(f"Error, no piece or move for {piece.name} at {piece.position}")
-        return None
-    except AttributeError as e:
-        take_notes(f"Fatal: {e}")
-        return None
+from chessmaker.chess.base import Board, Piece, MoveOption, Player
 
 
 class Node:
@@ -30,7 +11,7 @@ class Node:
     _zobrist_keys: dict[str, int] = {}
     transposition_table: dict[int, "Node"] = {}  # map board z_hash to node
     _RANDBITS: int = 64
-
+    AGENT_PLAYER: Player = None
     # todo add en-peasant keys to class methods
     @classmethod
     def _initialise_zobrist_keys(cls, board_size=(5, 5)):
@@ -120,109 +101,97 @@ class Node:
         parent: "Node" = None,
         move: tuple[Piece, MoveOption] = None,
         signature: int = None,
+        agent: Player = None
     ):
         """initialise new node"""
+        if not Node.AGENT_PLAYER:
+            if agent is None:
+                raise RuntimeError("Agent was not set")
+            Node.AGENT_PLAYER = agent
         if not Node._zobrist_keys:
             Node._initialise_zobrist_keys()
+
         self._board: Board = board
         self._move: tuple[Piece, MoveOption] = move
         self.parent: list[Node] = [] if parent is None else [parent]
         self._children: list[Node] = []
         self._value: float | None = None
-        self._depth: int = 0 if parent is None else parent.get_depth() + 1
+        self.depth: int = 0 if parent is None else parent.get_depth() + 1
         self._search_depth : int = 0
+        
         self.node_signature: int = (
-            Node._calculate_zobrist_signature(self) if signature is None else signature
+            signature if signature is not None else Node._calculate_zobrist_signature(self)
         )
         # if node signature has not already been seen add new instance
         if self.node_signature not in Node.transposition_table:
             Node.transposition_table[self.node_signature] = self
         # if terminal game ending move
         if self.is_terminal():
-            if cannot_move(self._board):
-                self._value = inf  # wins game
-            else:
-                self._value = -inf  # looses game
+            self._value = self.evaluate_terminal()
+        
+        self._cached_moves: list[tuple[Piece,MoveOption]] = None
 
-    def get_board(self) -> Board:
-        """return current nodes board"""
-        return self._board
+    def get_board(self) -> Board:                   return self._board
+    def get_depth(self) -> int:                     return self.depth
+    def get_value(self) -> float:                   return self._value
+    def get_move(self) -> tuple[Piece,MoveOption]:  return self._move
+    def get_children(self) -> list[Node]:           return self._children
+    def is_root(self) -> bool:                      return not self.parent
+    def is_terminal(self) -> bool:                  return get_result(self._board) is not None
+    def _get_legal_moves(self) -> list[tuple[Piece,MoveOption]]:
+        """returns cached list of legal move tuples"""
+        if self._cached_moves is None:
+            player = self._board.current_player
+            self._cached_moves = list_legal_moves_for(self._board, player)
+        return self._cached_moves
 
-    def get_depth(self) -> int:
-        """returns current nodes depth"""
-        return self._depth
-    
-    def get_search_depth(self) -> int:
-        """returns search depth that set this nodes value"""
-        return self._search_depth
+    def set_value(self, val: float, depth: int) -> None:
+        self._value = val
+        self._search_depth = depth
 
-    def get_value(self) -> float:
-        """return current nodes value"""
-        return self._value
+    def evaluate_terminal(self) -> float:
+        """determines if terminal is winning or loosing
+        if we cause stalemate we win or checkmate, otherwise
+        we loose / draw"""
+        result = get_result(self._board)
+        if result is None:
+            return 0
+        agent = Node.AGENT_PLAYER.name.lower()
+        if "wins" in result and agent in result:
+            return inf
+        if "wins" in result and agent not in result:
+            return -inf
+        if "draw" in result:
+            return 0
+        return -inf # stalemate for current side
 
-    def set_value(self, value: float, search_depth: int) -> None:
-        """set node value to given value"""
-        self._value = value
-        self._search_depth = search_depth
-
-    def set_depth(self, new_depth: int) -> None:
-        """set currents node depth to given value"""
-        self._depth = new_depth
-
-    def is_root(self) -> bool:
-        """returns true if current node is root"""
-        return not self.parent
-
-    def is_terminal(self) -> bool:
-        """returns if the current board state is leaf"""
-        result = get_result(self.get_board())
-        return result is not None
-
-    def has_children(self) -> bool:
-        """returns true if node has children"""
-        return len(self.get_children()) > 0
-
-    def get_children(self) -> list['Node']:
-        """returns nodes list of children"""
-        return self._children
-
-    def get_move(self) -> tuple[Piece, MoveOption]:
-        """return move that led to this node"""
-        return self._move
-
-    def expand(self, max_depth: int):
-        """expand children of current node as long as depth not reached,
-        add signature if not already expanded, else link nodes"""
-        # if has children already expanded, or max depth then dont expand
-        if self._children or self._depth >= max_depth:
+    def expand(self, max_depth: int)-> None:
+        """create child nodes unless depth limit or alr expanded"""
+        if self._children or self.depth >= max_depth:
             return
-        board = self.get_board()
-        player_to_expand = board.current_player
-        moves_to_expand = list_legal_moves_for(board, player_to_expand)
-        for piece, move in moves_to_expand:
-            if copy_board := execute_move_onboard(board, piece, move):
-                child_signature = Node._calculate_incremental_signature(
-                    self, piece, move, copy_board
-                )
-                # if child signature already exists link and dont create new node
-                if child_signature in Node.transposition_table:
-                    existing_child = Node.transposition_table[child_signature]
-                    # if not already a child in parent
-                    if self not in existing_child.parent:
-                        existing_child.parent.append(self)
-
-                    new_depth = self._depth + 1
-                    if new_depth < existing_child.get_depth():
-                        existing_child.set_depth(new_depth)
-
-                    # add child to current node
-                    self._children.append(existing_child)
-                    continue
-                # if new node create and add to child
-                child = Node(
-                    copy_board,
-                    parent=self,
-                    move=(piece, move),
-                    signature=child_signature,
-                )
+        for piece, move in self._get_legal_moves():
+            # clone board and apply move
+            new_board = self._board.clone()
+            _, new_piece, new_move = copy_piece_move(new_board, piece, move)
+            if new_piece is None or new_move is None:
+                continue
+            new_piece.move(new_move)
+            # compute child signature
+            child_sig = Node._calculate_incremental_signature(self, piece, move, new_board)
+            if child_sig in Node.transposition_table:
+                child = Node.transposition_table[child_sig]
+                if self not in child.parent:
+                    child.parent.append(self)
+                child.depth = min(child.depth, self.depth + 1)
                 self._children.append(child)
+                continue
+            child = Node(
+                board=new_board,
+                parent=self,
+                move=(piece,move),
+                signature=child_sig
+            )
+            self._children.append(child)
+
+    def __repr__(self) -> str:
+        return f"<Node depth={self.depth} value={self._value} moves={len(self._children)}>"
