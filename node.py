@@ -74,7 +74,7 @@ class Node:
         old_piece_key = cls._get_piece_key(piece_to_move)
         z_hash ^= cls._zobrist_keys[old_piece_key]
         # xor out piece if captured from parent
-        for captured_pos in move_opt.captures:
+        for captured_pos in getattr(move_opt, "captures", []):
             if square := parent.get_board()[captured_pos]:
                 captured_key = cls._get_piece_key(square.piece)
                 z_hash ^= cls._zobrist_keys[captured_key]
@@ -103,7 +103,7 @@ class Node:
         signature: int = None,
         agent: Player = None
     ):
-        """initialise new node"""
+        """initialise new node; hash and if terminal value"""
         if not Node.AGENT_PLAYER:
             if agent is None:
                 raise RuntimeError("Agent was not set")
@@ -117,8 +117,8 @@ class Node:
         self._children: list[Node] = []
         self._value: float | None = None
         self.depth: int = 0 if parent is None else parent.get_depth() + 1
-        self._search_depth : int = 0
-        
+        self.search_depth : int = 0
+
         self.node_signature: int = (
             signature if signature is not None else Node._calculate_zobrist_signature(self)
         )
@@ -128,17 +128,17 @@ class Node:
         # if terminal game ending move
         if self.is_terminal():
             self._value = self.evaluate_terminal()
-        
-        self._cached_moves: list[tuple[Piece,MoveOption]] = None
+
+        self._cached_moves: list[tuple[Piece,MoveOption]] | None = None
 
     def get_board(self) -> Board:                   return self._board
     def get_depth(self) -> int:                     return self.depth
     def get_value(self) -> float:                   return self._value
     def get_move(self) -> tuple[Piece,MoveOption]:  return self._move
-    def get_children(self) -> list[Node]:           return self._children
+    def get_children(self) -> list['Node']:         return self._children
     def is_root(self) -> bool:                      return not self.parent
     def is_terminal(self) -> bool:                  return get_result(self._board) is not None
-    def _get_legal_moves(self) -> list[tuple[Piece,MoveOption]]:
+    def get_legal_moves(self) -> list[tuple[Piece,MoveOption]]:
         """returns cached list of legal move tuples"""
         if self._cached_moves is None:
             player = self._board.current_player
@@ -147,7 +147,7 @@ class Node:
 
     def set_value(self, val: float, depth: int) -> None:
         self._value = val
-        self._search_depth = depth
+        self.search_depth = depth
 
     def evaluate_terminal(self) -> float:
         """determines if terminal is winning or loosing
@@ -163,13 +163,13 @@ class Node:
             return -inf
         if "draw" in result:
             return 0
-        return -inf # stalemate for current side
+        return -inf # stalemate for current side to move
 
     def expand(self, max_depth: int)-> None:
         """create child nodes unless depth limit or alr expanded"""
         if self._children or self.depth >= max_depth:
             return
-        for piece, move in self._get_legal_moves():
+        for piece, move in self.get_legal_moves():
             # clone board and apply move
             new_board = self._board.clone()
             _, new_piece, new_move = copy_piece_move(new_board, piece, move)

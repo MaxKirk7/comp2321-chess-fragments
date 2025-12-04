@@ -1,161 +1,98 @@
 from math import inf
-from time import time
 from chessmaker.chess.base import Board, Piece, MoveOption, Player
-from extension.board_utils import take_notes
 from node import Node
+
 class Search:
-    """optimise for best move in game tree"""
     MAP_PIECE_TO_VALUE = {"K": 1000, "Q": 5, "R": 4, "N": 3, "B": 2, "P": 2}
-    CENTER_SQUARES = [(2, 2), (1, 2), (2, 1), (3, 2), (2, 3)]
+    CENTER_SQUARES = {(2, 2), (1, 2), (2, 1), (3, 2), (2, 3)}
     CENTER_BONUS = 0.2
-    def __init__(self, root_board: Board, player_to_optimise: Player, maximum_depth: int = 3):
-        """
-        Docstring for __init__
-        
-        :param root_board: board to begin the expansion from
-        :type root_board: Board
-        :param player_to_optimise: player we are maximising score for
-        :param maximum_depth: maximum recurse depth -> higher is better but longer
-        :type maximum_depth: int
-        """
-        self._agent_player : Player = player_to_optimise
-        self._max_depth : int = maximum_depth
-        self._root : Node = Node(root_board)
 
-    def start(self) -> tuple[Piece, MoveOption]:
-        """find best move within time budget"""
-        self._start_time = time()
-        best_overall_move = None
-        current_depth = 1 # start search at depth 1
-        while True:
-            if self._stop_search or current_depth > 10: # cap depth jic
-                take_notes(f"ended search at depth {current_depth}")
-                break
-            take_notes(f"beginning search at depth {current_depth}")
-            # store best for current depth
-            temp_best = self._minimax(self._root, -inf, inf, max_depth_limit = current_depth)
-            if self._stop_search:
-                take_notes(f"d {current_depth} time ran out")
+    def __init__(self, root_board: Board, player: Player, maximum_depth: int):
+        self._agent = player
+        self._root = Node(root_board, agent=self._agent)
+        self._max_depth = maximum_depth
     
-
     def start(self) -> tuple[Piece, MoveOption]:
-        """find and return most optimal move"""
-        # find highest value move possible
-        best_value = self._minimax(self._root, -inf, inf)
-        # select move that causes best score
+        """iterative deepening up to max depth"""
         best_move = None
-        children = self._get_sorted_children(self._root)
-        for child in children:
-            value = child.get_value()
-            if value is not None and value == best_value:
-                best_move = child.get_move()
-                break
-        if best_move is None and children:
-            best_move = children[0].get_move()
-        return best_move
-
-    def _minimax(self, node: Node, alpha: float, beta: float) -> float:
-        """
-        minimax algorithm with alpha beta pruning
-        
-        :param node: current node
-        :type node: Node
-        :param alpha: best score maximiser has found
-        :type alpha: float
-        :param beta: best score minimiser has found
-        :type beta: float
-        :return: return highest guaranteed score
-        :rtype: float
-        """
-        remaining_depth = self._max_depth - node.get_depth()
-        # if node exists in transposition able nad has value use that value
-        entry = Node.transposition_table.get(node.node_signature)
-        if entry is not None:
-            value = entry.get_value()
-            if value is not None and entry.get_search_depth() >= remaining_depth:
-                return value
-
-        # base -> if at max depth / leaf node return current value
-        if node.get_depth() >= self._max_depth or node.is_terminal():
-            if node.get_value() is None:
-                node.set_value(self.eval(node), 0)
-            return node.get_value()
-
-        # expand next depth of children sorted
-        children = self._get_sorted_children(node)
-        if not children:
-            if node.get_value() is None:
-                node.set_value(self.eval(node), remaining_depth)
-            return node.get_value()
-
-        # recursive step
-        is_maximising = node.get_board().current_player == self._agent_player
-        best: float
-        if is_maximising:
-            best = -inf # not found anything yet
-            for child in children:
-                value = self._minimax(child, alpha, beta)
-                best = max(best, value)
-                alpha = max(best, alpha)
-                if beta <= alpha: # we have a guaranteed better move prune
+        best_value = -inf
+        for depth in range (1, self._max_depth + 1):
+            # minimax search for current depth
+            value = self._minimax(self._root, -inf, inf, depth)
+            for child in self._root.get_children():
+                if child.get_value() == value:
+                    best_move = child.get_move()
+                    best_value = value
                     break
-            # update nodes value (and in TT) to be best value found
-            node.set_value(best, remaining_depth)
-        else:
-            best = inf # not found anything to minimise against yet
+        if best_move is None:
+            legal = self._root.get_legal_moves()
+            best_move = legal[0]
+        piece, move_opt = best_move
+        return piece, move_opt
+    
+    def _minimax(self, node: Node, alpha: float, beta: float, depth_limit: int) -> float:
+        """depth limited minimax with alpha beta"""
+        # TT lookup
+        entry = Node.transposition_table.get(node.node_signature)
+        if entry is not None and entry.search_depth >= (depth_limit - node.get_depth()):
+            return entry.get_value()
+        # terminal / leaf
+        if node.is_terminal() or node.get_depth() == depth_limit:
+            if node.get_value() is None:
+                node.set_value(self._evaluate(node), depth_limit - node.get_depth())
+            return node.get_value()
+        # generate / fetch sorted children
+        node.expand(depth_limit)
+        children = node.get_children()
+        children.sort(key=self._move_score, reverse=True)
+        # recurse
+        maximising = node.get_board().current_player == self._agent
+        if maximising:
+            val = -inf
             for child in children:
-                value = self._minimax(child, alpha, beta)
-                best = min(best, value)
-                beta = min(best, beta)
+                val = max(val, self._minimax(child, alpha, beta, depth_limit))
+                alpha = max(val, alpha)
                 if beta <= alpha:
                     break
-            node.set_value(best, remaining_depth)
-        return best
-
-    def eval(self, node: Node):
-        """returns a float higher positive favours agent, negative favours opp"""
-        value = node.get_value()
-        if value in (inf, -inf): # winning / loosing leaf
-            return value
-        material_score = self._calculate_material_score(node)
-        positional_score = self._calculate_positional_score(node)
-        return material_score + positional_score
-
-
-    def _calculate_material_score(self, node: Node) -> float:
-        """helper to separate logic, calculates and returns material score"""
-        material_score = 0
+        else:
+            val = inf
+            for child in children:
+                val = min(val, self._minimax(child,alpha,beta, depth_limit))
+                beta = min(val, beta)
+                if beta <= alpha:
+                    break
+        node.set_value(val, depth_limit - node.get_depth())
+        return val
+    
+    def _evaluate(self, node: Node) -> float:
+        if node.get_value() in (inf, -inf):
+            return node.get_value()
+        mat_score = 0.0
+        pos_score = 0.0
         for piece in node.get_board().get_pieces():
-            value = Search.MAP_PIECE_TO_VALUE[piece.name[0]]
-            if piece.player == self._agent_player:
-                material_score += value
-            else:
-                material_score -= value
-        return material_score
-
-    def _calculate_positional_score(self, node:Node) -> float:
-        """calculate bonus score for controlling centre"""
-        positional_score = 0
-        for piece in node.get_board().get_pieces():
+            val = self.MAP_PIECE_TO_VALUE[piece.name[0]]
+            mat_score += val if piece.player == self._agent else -val
             if (piece.position.x, piece.position.y) in self.CENTER_SQUARES:
-                if piece.player == self._agent_player:
-                    positional_score += self.CENTER_BONUS
-                else:
-                    positional_score -= self.CENTER_BONUS
-        return positional_score
-
-    def _get_sorted_children(self, node: Node) -> list[Node]:
-        """expand node returns children sorted by heuristic score"""
-        node.expand(self._max_depth)
-        children = node.get_children()
-        children.sort(key=self._score_move, reverse = True)
-        return children
-
-    def _score_move(self, child_node: Node) -> int:
+                pos_score += self.CENTER_BONUS if piece.player == self._agent else -self.CENTER_BONUS
+        return mat_score + pos_score
+    
+    def _move_score(self, node: Node) -> float:
+        """simple heuristic for move ordering"""
+        capture_bonus = 100
+        promotion_bonus = 80
+        centre_bonus = 20
         score = 0
-        if move_info := child_node.get_move():
-            _ , move_opt = move_info
-            if move_opt.captures:
-                score += 100
-            # todo add least valuable piece highest take
+        if move_option := node.get_move():
+            _, move = move_option
+            if getattr(move, "captures", []):
+                score += capture_bonus
+            if getattr(move, "promotion_bonus", False):
+                score += promotion_bonus
+            if (move.position.x, move.position.y) in self.CENTER_SQUARES:
+                score += centre_bonus
         return score
+
+
+
+
+
