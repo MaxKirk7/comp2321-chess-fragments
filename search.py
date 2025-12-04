@@ -35,7 +35,8 @@ class Search:
         # TT lookup
         entry = Node.transposition_table.get(node.node_signature)
         if entry is not None and entry.search_depth >= (depth_limit - node.get_depth()):
-            return entry.get_value()
+            if entry.get_value() is not None:
+                return entry.get_value()
         # terminal / leaf
         if node.is_terminal() or node.get_depth() == depth_limit:
             if node.get_value() is None:
@@ -57,7 +58,7 @@ class Search:
         else:
             val = inf
             for child in children:
-                val = min(val, self._minimax(child,alpha,beta, depth_limit))
+                val = min(val, self._minimax(child, alpha, beta, depth_limit))
                 beta = min(val, beta)
                 if beta <= alpha:
                     break
