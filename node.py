@@ -12,6 +12,7 @@ class Node:
     transposition_table: dict[int, "Node"] = {}  # map board z_hash to node
     _RANDBITS: int = 64
     AGENT_PLAYER: Player = None
+
     # todo add en-peasant keys to class methods
     @classmethod
     def _initialise_zobrist_keys(cls, board_size=(5, 5)):
@@ -23,7 +24,7 @@ class Node:
             for y in range(board_size[1]):
                 for player in players:
                     for piece_type in piece_types:
-                        key_name = f"{player}_{piece_type}_{x}_{y}"
+                        key_name = f"{player}_{piece_type.lower()}_{x}_{y}"  #*
                         cls._zobrist_keys[key_name] = getrandbits(cls._RANDBITS)
         # unique key for whose turn it is
         for player in players:
@@ -32,20 +33,18 @@ class Node:
     @classmethod
     def _get_piece_key(cls, piece: Piece) -> str:
         """helper to return consistent key for pieces"""
+        #* Ensure piece.type is lowercase to match key table
         pos = piece.position
-        player = piece.player
-        return f"{player.name.lower()}_{piece.name}_{pos.x}_{pos.y}"
+        return f"{piece.player.name.lower()}_{piece.name.lower()}_{pos.x}_{pos.y}"  #*
 
     @classmethod
     def _get_player_turn_key(cls, board: Board) -> str:
         """helper to return consistent key for boards current player"""
-        player = board.current_player
-        return f"turn_{player.name.lower()}"
+        return f"turn_{board.current_player.name.lower()}"
 
     @classmethod
     def _calculate_zobrist_signature(cls, node: "Node") -> int:
         """calculate and returns nodes signature using xor (^=) operations for ROOT"""
-        # calculate new signature
         board = node.get_board()
         z_hash = 0
         for piece in board.get_pieces():
@@ -69,30 +68,32 @@ class Node:
         use parents hash, xor off and on differences, generate new hash
         bitwise operations, so should be fast
         """
-        # xor out piece that moves
         z_hash = parent.node_signature
+
         old_piece_key = cls._get_piece_key(piece_to_move)
         z_hash ^= cls._zobrist_keys[old_piece_key]
-        # xor out piece if captured from parent
+
+        # captures
         for captured_pos in getattr(move_opt, "captures", []):
             if square := parent.get_board()[captured_pos]:
                 captured_key = cls._get_piece_key(square.piece)
                 z_hash ^= cls._zobrist_keys[captured_key]
             else:
                 take_notes(f"no piece at capture location {captured_pos}")
-        # xor out last players turn
-        old_turn_key = cls._get_player_turn_key(parent.get_board())
-        z_hash ^= cls._zobrist_keys[old_turn_key]
-        # xor in pieces new position
+
+        # remove old turn
+        z_hash ^= cls._zobrist_keys[cls._get_player_turn_key(parent.get_board())]
+
+        # new piece location
         new_pos = move_opt.position
         if square := copy_board[new_pos]:
             new_piece_key = cls._get_piece_key(square.piece)
             z_hash ^= cls._zobrist_keys[new_piece_key]
         else:
             take_notes(f"no piece at new location {new_pos}")
-        # xor in current player
-        current_player_key = cls._get_player_turn_key(copy_board)
-        z_hash ^= cls._zobrist_keys[current_player_key]
+
+        # add new turn
+        z_hash ^= cls._zobrist_keys[cls._get_player_turn_key(copy_board)]
         return z_hash
 
     def __init__(
@@ -108,6 +109,7 @@ class Node:
             if agent is None:
                 raise RuntimeError("Agent was not set")
             Node.AGENT_PLAYER = agent
+
         if not Node._zobrist_keys:
             Node._initialise_zobrist_keys()
 
@@ -117,15 +119,15 @@ class Node:
         self._children: list[Node] = []
         self._value: float | None = None
         self.depth: int = 0 if parent is None else parent.get_depth() + 1
-        self.search_depth : int = 0
+        self.search_depth: int = 0
 
         self.node_signature: int = (
             signature if signature is not None else Node._calculate_zobrist_signature(self)
         )
-        # if node signature has not already been seen add new instance
+
         if self.node_signature not in Node.transposition_table:
             Node.transposition_table[self.node_signature] = self
-        # if terminal game ending move
+
         if self.is_terminal():
             self._value = self.evaluate_terminal()
 
@@ -138,6 +140,7 @@ class Node:
     def get_children(self) -> list['Node']:         return self._children
     def is_root(self) -> bool:                      return not self.parent
     def is_terminal(self) -> bool:                  return get_result(self._board) is not None
+
     def get_legal_moves(self) -> list[tuple[Piece,MoveOption]]:
         """returns cached list of legal move tuples"""
         if self._cached_moves is None:
@@ -155,29 +158,33 @@ class Node:
         we loose / draw"""
         result = get_result(self._board)
         if result is None:
-            return 0
-        agent = Node.AGENT_PLAYER.name.lower()
-        if "wins" in result and agent in result:
-            return inf
-        if "wins" in result and agent not in result:
-            return -inf
-        if "draw" in result:
-            return 0
-        return -inf # stalemate for current side to move
+            return 0.0
+        agent_name = Node.AGENT_PLAYER.name.lower()
+        return self._outcome_score(result, agent_name)
+    
+    def _outcome_score(self, outcome: str, agent: str) -> float:
+        low = outcome.lower()
+        if "wins" in low:
+            return inf if agent in low else -inf
+        if "draw" in low:
+            return 0.0
+        return -inf if agent in low else inf
 
     def expand(self, max_depth: int)-> None:
         """create child nodes unless depth limit or alr expanded"""
-        if self._children or self.depth >= max_depth:
+        if self._children or self.depth >= max_depth or self.is_terminal():  #*
             return
+
         for piece, move in self.get_legal_moves():
-            # clone board and apply move
             new_board = self._board.clone()
             _, new_piece, new_move = copy_piece_move(new_board, piece, move)
             if new_piece is None or new_move is None:
                 continue
+
             new_piece.move(new_move)
-            # compute child signature
+
             child_sig = Node._calculate_incremental_signature(self, piece, move, new_board)
+
             if child_sig in Node.transposition_table:
                 child = Node.transposition_table[child_sig]
                 if self not in child.parent:
@@ -185,6 +192,7 @@ class Node:
                 child.depth = min(child.depth, self.depth + 1)
                 self._children.append(child)
                 continue
+
             child = Node(
                 board=new_board,
                 parent=self,
