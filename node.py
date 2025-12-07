@@ -1,12 +1,15 @@
 from random import getrandbits
 from chessmaker.chess.base import Board, Piece, MoveOption, Player, Position
 from chessmaker.chess.pieces import King
-from extension.board_utils import copy_piece_move, list_legal_moves_for
+from extension.board_utils import copy_piece_move, list_legal_moves_for, take_notes
 from extension.board_rules import get_result, cannot_move
 
 class Node:
     _z_keys: dict[str, int] = {}
     _transposition_table: dict[int, 'Node'] = {}
+    __slots__ = ("board", "current_player", "parents", "children",
+        "move", "hash", "_cached_moves", "kings")
+    
     def __init__(
             self,
             board: Board,
@@ -20,18 +23,18 @@ class Node:
         self.current_player: Player  = self.board.current_player
         self.parents: list['Node'] = [] if parent is None else [parent]
         self.children: list['Node'] = []
-        self.move = move
+        self.move: list[Piece, MoveOption] | None = move
         self.hash: int = z_hash if z_hash is not None else Node._calc_root_hash(self)
         self._cached_moves: list[tuple[Piece, MoveOption]] = []
-        self.kings_pos: dict[Player, Position]
+        self.kings: dict[Piece, King]
         if parent is None:
             # find kings
-            self.kings_pos = {}
+            self.kings = {}
             for pc in board.get_pieces():
                 if isinstance(pc, King):
-                    self.kings_pos[pc.player] = pc.position
+                    self.kings[pc.player.name] = pc
         else:
-            self.kings_pos = parent.kings_pos.copy()
+            self.kings = parent.kings.copy()
 
 
 
@@ -39,8 +42,11 @@ class Node:
     def _get_piece_key(cls, piece: Piece) -> str:
         """return key to identify each piece on board"""
         pos = piece.position
-        key = f"{piece.name[0].upper()}_{piece.player.name[0].lower()}_{pos.x}_{pos.y}"
-        return key
+        piece_type = getattr(piece.__class__, "__name__", None) or piece.name
+        take_notes(piece_type)
+        piece_type = piece_type.lower()
+        player = piece.player.name.lower()
+        return f"{piece_type}_{player}_{pos.x}_{pos.y}"
 
 
     @classmethod
@@ -52,14 +58,14 @@ class Node:
     @classmethod
     def _initialise_zobrist_keys(cls) -> None:
         """initialise keys for each piece, square and player turn"""
-        piece_types = ["King", "Queen", "Right", "Knight", "Bishop", "Pawn"]
+        piece_types = ["king", "queen", "right", "knight", "bishop", "pawn"]
         players = ["white", "black"]
         randbits = 64
         for x in range(5):
             for y in range(5):
                 for p in players:
                     for pt in piece_types:
-                        key = f"{pt[0]}_{p[0]}_{x}_{y}"
+                        key = f"{pt}_{p}_{x}_{y}"
                         cls._z_keys[key] = getrandbits(randbits)
         for p in players:
             cls._z_keys[f"turn_{p}"] = getrandbits(randbits)
@@ -114,7 +120,7 @@ class Node:
     def is_terminal(self) -> bool:
         """returns true if node is a terminal state"""
         return get_result(self.board) is not None or cannot_move(self.board)
-    
+
     def expand(self) -> None:
         """expands next set of children"""
         if self.children or self.is_terminal():
@@ -141,6 +147,6 @@ class Node:
             )
             # update position of kings
             if isinstance(piece, King):
-                child.kings_pos[piece.player] = new_move.position
+                child.kings[piece.player.name] = new_piece
             Node._transposition_table[child_hash] = child
             self.children.append(child)
