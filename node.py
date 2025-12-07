@@ -23,10 +23,10 @@ class Node:
         self.current_player: Player  = self.board.current_player
         self.parents: list['Node'] = [] if parent is None else [parent]
         self.children: list['Node'] = []
-        self.move: list[Piece, MoveOption] | None = move
+        self.move: tuple[Piece, MoveOption] | None = move
         self.hash: int = z_hash if z_hash is not None else Node._calc_root_hash(self)
         self._cached_moves: list[tuple[Piece, MoveOption]] = []
-        self.kings: dict[Piece, King]
+        self.kings: dict[str, King]
         if parent is None:
             # find kings
             self.kings = {}
@@ -37,11 +37,11 @@ class Node:
             self.kings = parent.kings.copy()
 
 
-
     @classmethod
-    def _get_piece_key(cls, piece: Piece) -> str:
+    def _get_piece_key(cls, piece: Piece, pos: Position = None) -> str:
         """return key to identify each piece on board"""
-        pos = piece.position
+        if pos is None:
+            pos = piece.position
         piece_type = getattr(piece.__class__, "__name__", None) or piece.name
         take_notes(piece_type)
         piece_type = piece_type.lower()
@@ -104,10 +104,8 @@ class Node:
         z_hash ^= cls._z_keys[cls._get_player_key(parent.current_player)]
         z_hash ^= cls._z_keys[cls._get_player_key(new_board.current_player)]
         # add in piece after move
-        new_pos = move_opt.position
-        if square := new_board[new_pos]:
-            new_piece_key = cls._get_piece_key(square.piece)
-            z_hash ^= cls._z_keys[new_piece_key]
+        new_piece_key = cls._get_piece_key(piece_to_move, move_opt.position)
+        z_hash ^= cls._z_keys[new_piece_key]
         return z_hash
 
 
