@@ -140,12 +140,20 @@ class Node:
         if self._cached_moves:
             return self._cached_moves
         legal: list[tuple[Piece,MoveOption]] = []
+        new_king = None
         for piece in self.board.get_player_pieces(self.current_player):
-            try:
-                for move in piece.get_move_options():
+            for move in piece.get_move_options():
+                temp_board = self.board.clone()
+                temp_piece = temp_board[piece.position].piece
+                temp_piece.move(move)
+                if isinstance(piece, King):
+                    new_king = temp_piece
+                else:
+                    new_king = self.kings[self.current_player.name]
+                if not new_king.is_attacked():
                     legal.append((piece,move))
-            except:
-                continue
+
+
         self._cached_moves = legal
         return self._cached_moves
 
