@@ -70,10 +70,10 @@ class Search:
         return best
     
     def _score_child(self, child_node: Node) -> float:
-        capture_bonus = 0.5
-        promotion_bonus = 0.45
-        centre_bonus = 0.05
-        check_bonus = 0.2
+        capture_bonus = 0.8
+        promotion_bonus = 0.7
+        centre_bonus = 0.1
+        check_bonus = 0.4
         score = 0
         enemy_king = child_node.kings[child_node.current_player.name]
         if child_node.move is None:
@@ -81,7 +81,11 @@ class Search:
         
         piece, move = child_node.move
         if getattr(move, "captures", None):
-            score += capture_bonus
+            for cap_sqr in move.captures:
+                captured = child_node.board[cap_sqr].piece
+                if captured:
+                    victim_value = Search.MAP_PIECE_TO_VALUE.get(captured.__class__.__name__.lower(), 1)
+                    score += capture_bonus * victim_value
         if piece.__class__.__name__.lower() == "pawn" and (
             move.position.y in (0,4)):
             score += promotion_bonus
@@ -90,10 +94,9 @@ class Search:
         if enemy_king.is_attacked():
             score += check_bonus
         return score
-    
+
     def get_ordered_children(self, node: Node) -> list[Node]:
         if not node.children:
             node.expand()
-        children = node.children[:]
-        children.sort(key=self._score_child, reverse=True)
-        return children
+        node.children.sort(key=self._score_child, reverse=True)
+        return node.children
