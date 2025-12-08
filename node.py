@@ -135,6 +135,9 @@ class Node:
         z_hash ^= cls._z_keys[new_piece_key]
         return z_hash
     
+    def is_defended_by(self, player: Player, position: Position) -> bool:
+        return position in self.attacks_by(player)
+
     def attacks_by(self, player: Player) -> set[Position]:
         """return set of sqaures attacked by player on this node"""
         key = player.name
