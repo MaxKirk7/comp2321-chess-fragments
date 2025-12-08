@@ -20,14 +20,14 @@ class Search:
                 best_score = score
                 best_child = child
         if best_child is None:
-            return self.root.get_legal_moves()[0]
+            return None, None
         return best_child.move
 
     def evaluate(self, node: Node) -> float:
         mat_score = 0.0
         pos_score = 0.0
         mobility_score = 0.0
-        centre_bonus = 0.2
+        centre_bonus = 0.05
         mobility_bonus = 0.05
         if node.is_terminal():
             if node.kings[node.board.current_player.name].is_attacked() or not node.get_legal_moves():
@@ -41,14 +41,27 @@ class Search:
                 pos_score += centre_bonus if piece.player == self.agent else -centre_bonus
         enemy_mobility = 0
         if node.children:
-            enemy_mobility = max(len(child.get_legal_moves() for child in node.children))
+            enemy_mobility = min(len(child.get_legal_moves()) for child in node.children)
         mobility_score = (len(node.get_legal_moves()) - enemy_mobility) * mobility_bonus
         return mat_score + pos_score + mobility_score
 
 
     def alphabeta(self, node: Node, alpha: float, beta: float, depth) -> float:
+        entry_node, entry_depth, entry_val, entry_flag = Node.get_entry_in_tt(node.hash)
+        if entry_node and entry_depth >= depth:
+            if entry_flag == "EXACT":
+                return entry_val
+            if entry_flag == "LOWER" and entry_val > alpha:
+                alpha = entry_val
+            if entry_flag == "UPPER" and entry_val < beta:
+                beta = entry_val
+            if alpha >= beta:
+                return entry_val
+
         if depth == 0 or node.is_terminal():
-            return self.evaluate(node)
+            val = self.evaluate(node)
+            Node.add_entry_in_tt(node, depth= depth, value=val, flag = "EXACT")
+            return val
 
         children = self.get_ordered_children(node)
 
@@ -56,19 +69,30 @@ class Search:
         if is_maximising:
             best = - inf
             for child in children:
-                best = max(self.alphabeta(child, alpha, beta, depth -1), best)
+                val = self.alphabeta(child, alpha, beta, depth -1)
+                best = max(val, best)
                 alpha = max(alpha, best)
                 if beta <= alpha:
+                    node.add_entry_in_tt(node, depth=depth, value=best, flag="LOWER")
                     return best
         else:
             best = inf
             for child in children:
-                best = min(self.alphabeta(child, alpha, beta, depth -1), best)
+                val = self.alphabeta(child, alpha, beta, depth -1)
+                best = min(val, best)
                 beta = min(beta, best)
                 if beta <= alpha:
+                    node.add_entry_in_tt(node, depth=depth, value=best, flag="UPPER")
                     return best
+        if best <= alpha:
+            flag = "UPPER"
+        elif best >= beta:
+            flag = "LOWER"
+        else:
+            flag = "EXACT"
+        Node.add_entry_in_tt(node, depth=depth, value=best, flag=flag)
         return best
-    
+
     def _score_child(self, child_node: Node) -> float:
         capture_bonus = 0.8
         promotion_bonus = 0.7
@@ -78,14 +102,18 @@ class Search:
         enemy_king = child_node.kings[child_node.current_player.name]
         if child_node.move is None:
             return score
-        
+
         piece, move = child_node.move
         if getattr(move, "captures", None):
             for cap_sqr in move.captures:
                 captured = child_node.board[cap_sqr].piece
                 if captured:
-                    victim_value = Search.MAP_PIECE_TO_VALUE.get(captured.__class__.__name__.lower(), 1)
-                    score += capture_bonus * victim_value
+                    attacker_value = Search.MAP_PIECE_TO_VALUE.get(
+                        piece.__class__.__name__.lower(), 1
+                    )
+                    victim_value = Search.MAP_PIECE_TO_VALUE.get(
+                        captured.__class__.__name__.lower(), 1)
+                    score += capture_bonus * (victim_value - attacker_value)
         if piece.__class__.__name__.lower() == "pawn" and (
             move.position.y in (0,4)):
             score += promotion_bonus
@@ -98,5 +126,8 @@ class Search:
     def get_ordered_children(self, node: Node) -> list[Node]:
         if not node.children:
             node.expand()
-        node.children.sort(key=self._score_child, reverse=True)
+        for child in node.children:
+            if child.order_score is None:
+                child.order_score = self._score_child(child)
+        node.children.sort(key=lambda n: n.order_score, reverse=True)
         return node.children

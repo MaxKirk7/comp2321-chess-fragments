@@ -1,14 +1,23 @@
+from dataclasses import dataclass
 from random import getrandbits
 from chessmaker.chess.base import Board, Piece, MoveOption, Player, Position
 from chessmaker.chess.pieces import King
 from extension.board_utils import copy_piece_move, list_legal_moves_for, take_notes
 from extension.board_rules import get_result, cannot_move
 
+@dataclass(frozen=False)
+class TTEntry:
+    node: "Node"
+    depth: int
+    score: float
+    flag: str
+
+
 class Node:
     _z_keys: dict[str, int] = {}
-    _transposition_table: dict[int, 'Node'] = {}
+    _transposition_table: dict[int, TTEntry] = {}
     __slots__ = ("board", "current_player", "parents", "children",
-        "move", "hash", "_cached_moves", "kings")
+        "move", "hash", "_cached_moves", "kings", "order_score")
     
     def __init__(
             self,
@@ -24,6 +33,7 @@ class Node:
         self.parents: list['Node'] = [] if parent is None else [parent]
         self.children: list['Node'] = []
         self.move: tuple[Piece, MoveOption] | None = move
+        self.order_score: float | None = None
         self.hash: int = z_hash if z_hash is not None else Node._calc_root_hash(self)
         self._cached_moves: list[tuple[Piece, MoveOption]] = []
         self.kings: dict[str, King]
@@ -33,8 +43,24 @@ class Node:
             for pc in board.get_pieces():
                 if isinstance(pc, King):
                     self.kings[pc.player.name] = pc
+            # add root entry to TT
+            Node.add_entry_in_tt(self, flag="EXACT")
         else:
             self.kings = parent.kings.copy()
+
+    @classmethod
+    def get_entry_in_tt(cls, z_hash: int) -> tuple["Node",int, float, str]:
+        """returns node, depth, value, flag"""
+        entry = cls._transposition_table.get(z_hash, None)
+        if entry is None:
+            return None, None, None, None
+        return entry.node, entry.depth, entry.score, entry.flag
+
+    @classmethod
+    def add_entry_in_tt(cls, node: "Node", depth: int = 0, value: float = 0.0, flag: str = "Lower") -> None:
+        if (flag_str := flag.upper()) not in ("LOWER", "UPPER", "EXACT"):
+            raise ValueError("Flag must be exact, lower, or upper")
+        cls._transposition_table[node.hash] = TTEntry(node, depth, value, flag_str)
 
 
     @classmethod
@@ -43,7 +69,6 @@ class Node:
         if pos is None:
             pos = piece.position
         piece_type = getattr(piece.__class__, "__name__", None) or piece.name
-        take_notes(piece_type)
         piece_type = piece_type.lower()
         player = piece.player.name.lower()
         return f"{piece_type}_{player}_{pos.x}_{pos.y}"
@@ -104,15 +129,24 @@ class Node:
         z_hash ^= cls._z_keys[cls._get_player_key(parent.current_player)]
         z_hash ^= cls._z_keys[cls._get_player_key(new_board.current_player)]
         # add in piece after move
-        new_piece_key = cls._get_piece_key(piece_to_move, move_opt.position)
+        new_piece = new_board[move_opt.position].piece
+        new_piece_key = cls._get_piece_key(new_piece, move_opt.position)
         z_hash ^= cls._z_keys[new_piece_key]
         return z_hash
 
 
     def get_legal_moves(self) -> list[tuple[Piece,MoveOption]]:
         """returns a cached list of legal moves"""
-        if not self._cached_moves:
-            self._cached_moves = list_legal_moves_for(self.board, self.current_player)
+        if self._cached_moves:
+            return self._cached_moves
+        legal: list[tuple[Piece,MoveOption]] = []
+        for piece in self.board.get_player_pieces(self.current_player):
+            try:
+                for move in piece.get_move_options():
+                    legal.append((piece,move))
+            except:
+                continue
+        self._cached_moves = legal
         return self._cached_moves
 
     def is_terminal(self) -> bool:
@@ -123,28 +157,32 @@ class Node:
         """expands next set of children"""
         if self.children or self.is_terminal():
             return
+        
+        parent_entry = Node.get_entry_in_tt(self.hash)
+        parent_depth = parent_entry[1] if parent_entry else 0
 
         for piece, move in self.get_legal_moves():
             new_board = self.board.clone()
-            _, new_piece, new_move = copy_piece_move(new_board, piece, move)
-            if new_piece is None or new_move is None:
-                continue
-            new_piece.move(new_move)
+            new_piece = new_board[piece.position].piece
+            new_piece.move(move)
             child_hash = Node._calc_incremental_hash(self, piece, move, new_board)
-            if child_hash in Node._transposition_table:
-                child = Node._transposition_table[child_hash]
+            existing = Node.get_entry_in_tt(child_hash)
+            if existing[0]:
+                child = existing[0]
                 if self not in child.parents:
                     child.parents.append(self)
                 self.children.append(child)
                 continue
+
             child = Node(
                 board=new_board,
                 parent=self,
                 move=(piece,move),
                 z_hash=child_hash
             )
+            Node._transposition_table[child_hash] = TTEntry(
+                node=child, depth= parent_depth + 1, score=0.0, flag="EXACT")
             # update position of kings
             if isinstance(piece, King):
                 child.kings[piece.player.name] = new_piece
-            Node._transposition_table[child_hash] = child
             self.children.append(child)
