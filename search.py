@@ -53,7 +53,7 @@ class Search:
             val = self.MAP_PIECE_TO_VALUE.get(name, 0)
             material += val if pc.player == self.agent else -val
 
-            if (pc.position.x, pc.position.y) in self.CENTER_SQUARES:
+            if pc.name.lower() == "pawn" and (pc.position.x, pc.position.y) in self.CENTER_SQUARES:
                 centre += Search.bonus["center"] if pc.player == self.agent else -Search.bonus["center"]
             if pc.player == self.agent and pc.position in opponent_attacks:
                 safety -= self.bonus["safety"] # piece can be captured on next turn
@@ -166,7 +166,7 @@ class Search:
         if move.position in opponent_attacks:
             move_bonus += Search.bonus["unsafe_move"] * 1.3
         if child.is_defended_by(self.agent, piece.position):
-            move_bonus += self.bonus["protected"] * 1.1
+            move_bonus += self.bonus["protected"] * 2
         return base + move_bonus
 
     def get_ordered_children(self, node: Node) -> list[Node]:
