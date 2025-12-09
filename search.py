@@ -6,17 +6,17 @@ class Search:
     MAP_PIECE_TO_VALUE = {"king": 20, "queen":9, "right":8, "knight":4, "bishop":3, "pawn":1}
     CENTER_SQUARES = {(2, 2), (1, 2), (2, 1), (3, 2), (2, 3)}
     bonus = {
-        "center": 0.12,
-        "mobility" : 0.1,
-        "safety": -1.8,
-        "king_safety": -4,
-        "enemy_king_safety": 2.5,
-        "capture": 1.3,
-        "check": 0.6,
-        "checkmate": 1000,
-        "promotion": 1,
-        "unsafe-move": -1,
-        "protected": 2.5,
+        "center": 0.06,
+        "mobility" : 0.05,
+        "safety": -0.45,
+        "king_safety": -3,
+        "enemy_king_safety": 2,
+        "capture": 1.1,
+        "check": 0.45,
+        "checkmate": 500,
+        "promotion": 2,
+        "unsafe-move": -0.7,
+        "protected": 0.8,
         }
     def __init__(self, root_board: Board, agent: Player):
         self.root = Node(root_board)
@@ -53,7 +53,7 @@ class Search:
             val = self.MAP_PIECE_TO_VALUE.get(name, 0)
             material += val if pc.player == self.agent else -val
 
-            if pc.name.lower() == "pawn" and (pc.position.x, pc.position.y) in self.CENTER_SQUARES:
+            if (pc.position.x, pc.position.y) in self.CENTER_SQUARES:
                 centre += Search.bonus["center"] if pc.player == self.agent else -Search.bonus["center"]
             if pc.player == self.agent and pc.position in opponent_attacks:
                 safety += self.bonus["safety"] * Search.MAP_PIECE_TO_VALUE[pc.name.lower()] # piece can be captured on next turn
@@ -88,7 +88,7 @@ class Search:
             if enemy_king.is_attacked():
                 move_bonus += Search.bonus["check"]
             if move.position in opponent_attacks:
-                move_bonus += Search.bonus["unsafe_move"]
+                move_bonus += Search.bonus["unsafe-move"]
             if node.is_defended_by(self.agent, piece.position):
                 move_bonus += Search.bonus["protected"]
 
@@ -157,14 +157,14 @@ class Search:
                 if captured:
                     victim_val = self.MAP_PIECE_TO_VALUE.get(captured.name.lower())
                     net_gain += victim_val - attack_val
-            move_bonus += net_gain * Search.bonus["capture"] * 1.5
+            move_bonus += net_gain * Search.bonus["capture"] * 1.4
         if piece.name.lower() == "pawn":
             if move.position.y in (0,4):
                 move_bonus += Search.bonus["promotion"] * 1.2
         if enemy_king.is_attacked():
             move_bonus += Search.bonus["check"] * 1.1
         if move.position in opponent_attacks:
-            move_bonus += Search.bonus["unsafe_move"] * attack_val * 1.3
+            move_bonus += Search.bonus["unsafe-move"] * attack_val * 1.3
         if child.is_defended_by(self.agent, piece.position):
             move_bonus += self.bonus["protected"] * 1
         return base + move_bonus
