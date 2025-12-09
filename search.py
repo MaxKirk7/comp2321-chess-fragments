@@ -7,16 +7,16 @@ class Search:
     CENTER_SQUARES = {(2, 2), (1, 2), (2, 1), (3, 2), (2, 3)}
     bonus = {
         "center": 0.12,
-        "mobility" : 0.07,
-        "safety": -0.1,
-        "king_safety": -3.5,
+        "mobility" : 0.1,
+        "safety": -1.8,
+        "king_safety": -4,
         "enemy_king_safety": 2.5,
         "capture": 1.3,
         "check": 0.6,
         "checkmate": 1000,
-        "promotion": 0.85,
-        "unsafe-move": -3,
-        "protected": 2.2,
+        "promotion": 1,
+        "unsafe-move": -1,
+        "protected": 2.5,
         }
     def __init__(self, root_board: Board, agent: Player):
         self.root = Node(root_board)
@@ -56,7 +56,7 @@ class Search:
             if pc.name.lower() == "pawn" and (pc.position.x, pc.position.y) in self.CENTER_SQUARES:
                 centre += Search.bonus["center"] if pc.player == self.agent else -Search.bonus["center"]
             if pc.player == self.agent and pc.position in opponent_attacks:
-                safety -= self.bonus["safety"] # piece can be captured on next turn
+                safety += self.bonus["safety"] * Search.MAP_PIECE_TO_VALUE[pc.name.lower()] # piece can be captured on next turn
         # mobility
         mobility = len(node.get_legal_moves()) * Search.bonus["mobility"]
         if node.current_player != self.agent:
@@ -148,13 +148,13 @@ class Search:
         enemy_king = child.kings[opponent.name]
         base = self.evaluate(child) - (Search.bonus["check"] if opponent_attacks else 0)
         move_bonus = 0
+        attack_val = self.MAP_PIECE_TO_VALUE.get(piece.name.lower())
 
         if getattr(move, "captures", None):
             net_gain = 0
             for cap_sq in move.captures:
                 captured = child.board[cap_sq].piece
                 if captured:
-                    attack_val = self.MAP_PIECE_TO_VALUE.get(piece.name.lower())
                     victim_val = self.MAP_PIECE_TO_VALUE.get(captured.name.lower())
                     net_gain += victim_val - attack_val
             move_bonus += net_gain * Search.bonus["capture"] * 1.5
@@ -164,9 +164,9 @@ class Search:
         if enemy_king.is_attacked():
             move_bonus += Search.bonus["check"] * 1.1
         if move.position in opponent_attacks:
-            move_bonus += Search.bonus["unsafe_move"] * 1.3
+            move_bonus += Search.bonus["unsafe_move"] * attack_val * 1.3
         if child.is_defended_by(self.agent, piece.position):
-            move_bonus += self.bonus["protected"] * 2
+            move_bonus += self.bonus["protected"] * 1
         return base + move_bonus
 
     def get_ordered_children(self, node: Node) -> list[Node]:
