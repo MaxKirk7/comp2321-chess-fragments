@@ -1,4 +1,4 @@
-from search import Search
+from search_r import Search
 
 
 def agent(board, player, var):

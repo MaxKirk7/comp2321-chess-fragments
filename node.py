@@ -25,6 +25,7 @@ class Node:
             move: tuple[Piece,MoveOption] = None,
             z_hash: int = None
             ) -> None:
+        
         if not Node._z_keys:
             Node._initialise_zobrist_keys()
         self.board: Board = board
