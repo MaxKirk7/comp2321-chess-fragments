@@ -9,10 +9,7 @@ from chessmaker.chess.piece_utils import filter_uncapturable_positions, is_in_bo
 
 
 class Right(Piece):
-    @classmethod
-    @property
-    def name(cls):
-        return "Right"
+    name = "Right"
 
     def _get_move_options(self) -> Iterable[MoveOption]:
         positions = [self.position.offset(*offset) for offset in knight.MOVE_OFFSETS]

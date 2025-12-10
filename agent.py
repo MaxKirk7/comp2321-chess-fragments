@@ -5,16 +5,7 @@ from random import getrandbits
 from chessmaker.chess.base import Board, Piece, MoveOption, Player, Position
 from chessmaker.chess.pieces import King
 from extension.board_rules import get_result
-from samples import black, white # players are either white or black
-
-
-
-def agent(board, player, var):
-    print(f"Ply: {var[0]}")
-    ai = Search(board, player)
-    piece, move_opt = ai.search(3)
-    return piece, move_opt
-
+from samples import white, black
 
 @dataclass(frozen=False)
 class TTEntry:
@@ -45,6 +36,7 @@ class Node:
         "order_score",
         "_attacked_by",
         "_is_terminal",
+        "__dict__"
     )
 
     def __init__(
@@ -549,6 +541,8 @@ class Search:
                 move_bonus += Search.bonus["unsafe-move"]
             if node.is_defended_by(self.agent, piece.position):
                 move_bonus += Search.bonus["protected"]
+            # if node.current_player == self.agent:
+            #     move_bonus = -move_bonus
         return material + centre + safety + mobility + king_safety + move_bonus
 
     def _score_child(self, child: Node) -> float:
@@ -592,3 +586,9 @@ class Search:
                 child.order_score = self._score_child(child)
         node.children.sort(key=lambda n: n.order_score, reverse=True)
         return node.children
+
+def agent(board, player, var):
+    print(f"Ply: {var[0]}")
+    ai = Search(board, player)
+    piece, move_opt = ai.search(3)
+    return piece, move_opt
