@@ -1,5 +1,0 @@
-searched up to depth 435 for 13.886296417000267s
-searched up to depth 3911 for 13.995399957999325s
-searched up to depth 6 for 9.206348791001801s
-searched up to depth 1377 for 13.990091667001252s
-searched up to depth 10 for 39.664705957999104s
