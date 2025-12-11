@@ -64,10 +64,13 @@ class LocalAgentConnector:
             if not os.path.exists(agent_path):
                 print("ERROR: agent.py not found in current directory")
                 sys.exit(1)
-
+            print ("found agent file")
             spec = importlib.util.spec_from_file_location("agent", agent_path)
+            print ("got from spec")
             self.agent_module = importlib.util.module_from_spec(spec)
+            print ("got module from spec")
             spec.loader.exec_module(self.agent_module)
+            print ("exectued")
 
             if not hasattr(self.agent_module, 'agent'):
                 print("ERROR: agent.py must define an 'agent' function")
@@ -75,7 +78,7 @@ class LocalAgentConnector:
 
             print(f"✓ Successfully loaded agent from {agent_path}")
         except Exception as e:
-            print(f"ERROR loading agent: {e}")
+            print(f"ERROR loading agent: {e}, {e.with_traceback}")
             sys.exit(1)
 
     async def connect_p2p(self):

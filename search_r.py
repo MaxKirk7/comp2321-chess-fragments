@@ -121,7 +121,7 @@ class Search:
             if pc.player == self.agent and pc.position in opponent_attacks:
                 # piece can be captured on next turn
                 safety += (self.bonus["safety"] *
-                        Search.MAP_PIECE_TO_VALUE[pc.name.lower()])
+                        Search.MAP_PIECE_TO_VALUE[pc.name.lower()] * 1.5)
         # mobility
         mobility = len(node.get_legal_moves()) * Search.bonus["mobility"]
         if node.current_player != self.agent:
