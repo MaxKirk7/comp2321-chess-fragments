@@ -96,7 +96,7 @@ class Search:
 
         Node.add_entry_in_tt(node, depth=depth, value=best, flag=flag)
         return best
-    
+
     def evaluate(self, node: Node) -> float:
         """return score for game state in agent perspective"""
         if node.is_terminal():
@@ -144,7 +144,11 @@ class Search:
                     captured = node.board[cap_sq].piece
                     if captured:
                         attack_val = self.MAP_PIECE_TO_VALUE.get(piece.name.lower())
-                        victim_val = self.MAP_PIECE_TO_VALUE.get(captured.name.lower())
+                        # only LVA MVV if piece is at risk of being
+                        if move.position in node.attacks_by(opponent):
+                            victim_val = self.MAP_PIECE_TO_VALUE.get(captured.name.lower())
+                        else:
+                            victim_val = 0
                         net_gain += victim_val - attack_val
                 move_bonus += net_gain * Search.bonus["capture"]
             if piece.name.lower() == "pawn":
@@ -153,7 +157,7 @@ class Search:
             if enemy_king.is_attacked():
                 move_bonus += Search.bonus["check"]
             if move.position in opponent_attacks:
-                move_bonus += Search.bonus["unsafe-move"]
+                move_bonus += Search.bonus["unsafe-move"] * attack_val
             if node.is_defended_by(self.agent, piece.position):
                 move_bonus += Search.bonus["protected"]
         return material + centre + safety + mobility + king_safety + move_bonus
@@ -175,7 +179,10 @@ class Search:
             for cap_sq in mv.captures:
                 captured = child.board[cap_sq].piece
                 if captured:
-                    victim_val = self.MAP_PIECE_TO_VALUE.get(captured.name.lower(), 0)
+                    if mv.position in child.attacks_by(opponent):
+                        victim_val = self.MAP_PIECE_TO_VALUE.get(captured.name.lower(), 0)
+                    else:
+                        victim_val = 0
                     net_gain += victim_val - attack_val
             bonus += net_gain * Search.bonus["capture"] * 1.4
         if pc.name.lower() == "pawn":

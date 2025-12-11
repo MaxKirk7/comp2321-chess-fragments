@@ -1,4 +1,4 @@
-from search_r import Search
+from search import Search
 
 def agent(board , player , var ):
     """
