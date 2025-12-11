@@ -98,7 +98,7 @@ class Search:
 
     def evaluate(self, node: Node) -> float:
         """
-        Score a position from the point‑of‑view of ``self.agent_player``.
+        Score a position from the point of view of ``self.agent_player``.
         The new version:
         * Always rewards a capture (independent of attacker value).
         * Scales the unsafe move penalty with the value of the piece that is moved.
