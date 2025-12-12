@@ -78,8 +78,6 @@ class Node:
             for pc in self.board.get_pieces():
                 if isinstance(pc, King):
                     self.kings[pc.player.name] = pc
-            # add entry to TT
-            Node.add_entry_in_tt(self, flag ="EXACT")
         else:
             # can use copy of parents kings and adjust if king move
             self.kings = parent.kings.copy()
@@ -360,7 +358,6 @@ class Node:
                 move=(pc, mv),
                 z_hash=child_hash,
             )
-            Node.add_entry_in_tt(child, depth=parent_depth + 1, value=0, flag="EXACT")
             if isinstance(pc, King):
                 child.kings[pc.player.name] = new_pc
             self.children.append(child)
@@ -420,6 +417,46 @@ class Search:
             return None, None
         return best_child.move
     
+    def _quiesce(self, node:Node, alpha: float, beta: float, maximising: bool) -> float:
+        """extend the leaf evaluations through capture moves"""
+        stand_pat = self.evaluate(node)
+        # alpha beta bounds
+        if maximising:
+            if stand_pat >= beta:
+                return beta
+            alpha = max(stand_pat, alpha)
+        else:
+            if stand_pat <= alpha:
+                return alpha
+            beta = min(stand_pat, beta)
+
+        # generate only capture moves + promotions + check
+        for pc, mv in node.get_legal_moves():
+            if not getattr(mv, "captures", None) or (pc.name.lower() == "pawn" and mv.position in (0,4) or self._is_check_move(node,pc,mv)):
+                continue
+            new_board = node.board.clone()
+            new_pc = new_board[pc.position].piece
+            new_pc.move(mv)
+            child = Node(new_board, node, (pc,mv), Node.calc_incremental_hash(node, pc, mv, new_board))
+            # recurse
+            score = self._quiesce(child, alpha, beta, not maximising)
+            if maximising:
+                alpha = max(alpha, score)
+                if alpha >= beta:
+                    break
+            else:
+                beta = min(beta, score)
+                if beta <= alpha:
+                    break
+        return alpha if maximising else beta
+
+    def _is_check_move(self, node: Node, piece: Piece, move: MoveOption) -> bool:
+        tmp = node.board.clone()                                              
+        tmp_piece = tmp[piece.position].piece
+        tmp_piece.move(move)
+        opp_king = node.kings[node.previous_player.name]
+        return opp_king.is_attacked()
+    
     def alphabeta(self, node:Node, alpha: float, beta: float, depth) -> float:
         """
         attempts to return highest guaranteed score agent can make
@@ -446,7 +483,10 @@ class Search:
                 return entry_val
 
         if depth == 0 or node.is_terminal():
-            val = self.evaluate(node)
+            val = self._quiesce(node,
+                                alpha=-inf if node.current_player == self.agent_player else inf,
+                                beta= inf if node.current_player == self.agent_player else -inf,
+                                maximising= node.current_player == self.agent_player)
             Node.add_entry_in_tt(node, depth=depth, value=val, flag="EXACT")
             return val
 
@@ -485,7 +525,7 @@ class Search:
                 return inf if node.current_player != self.agent_player else -inf
             return 0.0
         
-        material = centre = safety = 0.0
+        material = centre = safety = development = 0.0
         opponent = node.previous_player
         opponent_attacks = node.attacks_by(opponent)
         for pc in node.board.get_pieces():
@@ -511,11 +551,11 @@ class Search:
             if (pc.player == self.agent_player and not isinstance(pc, King)
                 and ((pc.player.name == "white" and pc.position.y > 0)
                     or pc.player.name == "black" and pc.position.y < 4)):
-                centre += Search.bonus["development"]
+                development += Search.bonus["development"]
             # pawn progress
             if name == "pawn" and pc.player == self.agent_player:
                 progress = pc.position.y if pc.player.name == "white" else (4 - pc.position.y)
-                centre += progress * Search.bonus["pawn_progress"]
+                development += progress * Search.bonus["pawn_progress"]
 
 
         # mobility - number of legal moves for the side that is about to move
@@ -570,7 +610,7 @@ class Search:
                 move_bonus += Search.bonus["protected"]
 
         return (material + centre + safety + mobility +
-                king_safety + move_bonus)
+                king_safety + move_bonus + development)
 
     def _score_child(self, child: Node) -> float:
         """aggressive evaluation for what nodes to expand first, agent_player independent evaluation"""
@@ -600,7 +640,7 @@ class Search:
             bonus += Search.bonus["check"] * 1.1
 
         if mv.position in opponent_attacks:
-            bonus += Search.bonus["unsafe-move"] * piece_val * 1.3
+            bonus += Search.bonus["unsafe_move"] * piece_val * 1.3
 
         if child.is_defended_by(self.agent_player, mv.position):
             bonus += Search.bonus["protected"] * 1.0
