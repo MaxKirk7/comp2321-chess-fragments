@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Local Agent Connector for Chess Fragments Platform
-Generated for agent: buns
+Generated for agent: if_you_lose_your_degloved
 
 This script allows you to run your agent locally while connecting to the platform.
 Place this file in the same directory as your agent.py and run:
@@ -26,8 +26,8 @@ import hashlib
 import signal
 # 51ad795cdbefa26f6674ba67644f09fa373658832b77e5f7248a5af6a7c8b8e2
 # Configuration (DO NOT MODIFY)
-AGENT_ID = "38623120-e853-49aa-8da9-3902e747a160"
-CONNECTION_TOKEN = "c407ee00057e2a986ad20a54f4b09548064dfda28c97e6c566fbb822f2a5b806"
+AGENT_ID = "5e67788f-77e3-4c65-b14f-99df448e90d3"
+CONNECTION_TOKEN = "11f1bf24f0d73ffb81db87e2f494d59d783af7cd5ea175fdd4bce56480cee7bb"
 WS_URL = "wss://chesscomp.zaknobleclarke.com/api/local-agent/ws"
 P2P_HOST = "chesscomp.zaknobleclarke.com"
 P2P_PORT = 9000  # Direct TCP connection port
