@@ -1,15 +1,13 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from math import inf
-from typing import Any
-
+from random import getrandbits
+from typing import Any, Iterable
 from chessmaker.chess.base import Board, Player, Piece, MoveOption, Position
 from chessmaker.chess.pieces import King
 from extension.board_rules import get_result
-from samples import black, white  # players are either white or black
-
-from dataclasses import dataclass
-from random import getrandbits
+from samples import white, black
 
 @dataclass(frozen=False)
 class TTEntry:
@@ -24,25 +22,46 @@ class Node:
     """
     _z_keys: dict[str, int] = {}
     _transposition_table: dict[int, TTEntry] = {}
-    __slots__ = ("board", "current_player", "previous_player", "parents", "children",
-        "move", "z_hash", "_cached_moves", "kings", "order_score", "_attacked_by", "_is_terminal")
-
+    __slots__ = (
+        "board",
+        "current_player",
+        "previous_player",
+        "parents",
+        "children",
+        "move",
+        "z_hash",
+        "_cached_moves",
+        "kings",
+        "order_score",
+        "_attacked_by",
+        "_is_terminal",
+    )
     def __init__(
-            self,
-            board: Board,
-            parent: 'Node' | None = None,
-            move: tuple[Piece, MoveOption] | None = None,
-            z_hash: int | None = None
-            ) -> None:
+        self,
+        board: Board,
+        parent: "Node" | None = None,
+        move: tuple[Piece, MoveOption] | None = None,
+        z_hash: int | None = None,
+    ) -> None:
         """
         initialise a new node representing unique game state,
         initialises Node zobrist keys class if first node created
+        
+        :param self: this instance of a node
+        :param board: board object representing this node of game tree
+        :type board: Board
+        :param parent: node that led to this node, None for root
+        :type parent: 'Node' | None
+        :param move: move that led to this game state
+        :type move: tuple[Piece, MoveOption] | None
+        :param z_hash: zobrist hash belonging to this game state
+        :type z_hash: int | None
+        :rtype: None
         """
         if not Node._z_keys:
             Node._initialise_zobrist_keys()
         self.board: Board = board
         self.current_player: Player = self.board.current_player
-        # previous_player is always the opposite of current_player
         self.previous_player: Player = white if self.current_player == black else black
         self.parents: list['Node'] = [] if parent is None else [parent]
         self.children: list['Node'] = []
@@ -50,7 +69,7 @@ class Node:
         self.order_score: float | None = None
         self.z_hash: int = z_hash if z_hash is not None else Node._calc_root_hash(self)
         self._cached_moves: list[tuple[Piece, MoveOption]] = []
-        self._attacked_by: dict[str, set[Position]] = {}
+        self._attacked_by: dict[str,set[Position]] = {}
         self._is_terminal: bool = False
         self.kings: dict[str, King]
         if parent is None:
@@ -66,17 +85,6 @@ class Node:
             self.kings = parent.kings.copy()
 
     @classmethod
-    def get_entry_in_tt(cls, z_hash: int) -> tuple[int | None, float | None, str | None]:
-        """
-        take a nodes hash and find entry in TT,
-        returns depth, score, flag
-        """
-        entry = cls._transposition_table.get(z_hash)
-        if entry is None:
-            return None, None, None
-        return entry.depth, entry.score, entry.flag
-
-    @classmethod
     def add_entry_in_tt(
         cls,
         node: "Node",
@@ -87,63 +95,122 @@ class Node:
         """
         adds an entry for hash of game state into tt,
         validates flag to make sure correct
+        
+        :param node: node whose game state we are saving
+        :type node: "Node"
+        :param depth: depth that this node was evaluated at
+        :type depth: int
+        :param value: value this game state was given
+        :type value: float
+        :param flag: bound of value
+        :type flag: str
         """
         if (flag_str := flag.upper()) not in ("LOWER", "UPPER", "EXACT"):
             raise ValueError("Flag must be exact lower or upper bound")
-        cls._transposition_table[node.z_hash] = TTEntry(depth, value, flag_str)
+        cls._transposition_table[node.z_hash] = TTEntry(depth=depth, score=value, flag=flag_str)
 
+    @classmethod
+    def get_entry_in_tt(cls, z_hash: int) -> tuple[int, float, str] | tuple[None, None, None]:
+        """
+        take a nodes hash and find entry in TT,
+        returns depth, score, flag
+        return tuple of None if not
+
+        :param cls: Node class
+        :param z_hash: hash representing the game state
+        :type z_hash: int
+        :return: return depth, score, flag as tuple or Nones if no entry
+        :rtype: tuple[int, float, str] | tuple[None, None, None]
+        """
+        entry = cls._transposition_table.get(z_hash)
+        if entry is None:
+            return None,None,None
+        return entry.depth, entry.score, entry.flag
+    
     @classmethod
     def get_piece_key(cls, piece: Piece, position: Position | None = None) -> str:
         """
         helper generates and returns key for piece "type,player,x,y"
+        
+        :param piece: piece the key is for
+        :type piece: Piece
+        :param position: optionally chose the position
+        :type position: Position | None
+        :return: return key to use for lookup
+        :rtype: str
         """
         if position is None:
             position = piece.position
         pc_type = piece.name.lower()
         player = piece.player.name.lower()
         return f"{pc_type}_{player}_{position.x}_{position.y}"
+    
 
     @classmethod
     def _get_player_key(cls, player: Player | str) -> str:
-        """helper generates and returns key for whose turn it is"""
+        """
+        helper generates and returns key for whose turn it is
+        
+        :param player: player whose turn it is
+        :type player: Player
+        :return: return key for player turn
+        :rtype: str
+        """
         if isinstance(player, Player):
             name = player.name.lower()
         else:
             name = player.lower()
         return f"turn_{name}"
-
+    
     @classmethod
     def _initialise_zobrist_keys(cls) -> None:
         """initialise key representing each possible square in game, piece x turn x squares"""
         piece_types = ["king", "queen", "right", "knight", "bishop", "pawn"]
         players = [white.name.lower(), black.name.lower()]
         randbits = 64
-        bits_so_far = set()
+        bits_so_far: set[int] = set()
         # fixed 5x5 board
         for x in range(5):
             for y in range(5):
                 for p in players:
                     for pt in piece_types:
                         key = f"{pt}_{p}_{x}_{y}"
-                        # ensure uniqueness of random bits per key
-                        while True:
-                            random = getrandbits(randbits)
-                            if random not in bits_so_far:
-                                cls._z_keys[key] = random
-                                bits_so_far.add(random)
-                                break
-                    # player turn key
-                    turn_key = cls._get_player_key(p)
-                    while True:
-                        random = getrandbits(randbits)
-                        if random not in bits_so_far:
-                            cls._z_keys[turn_key] = random
-                            bits_so_far.add(random)
-                            break
+                        cls._add_unique_randbits_for_key(bits_so_far, key, randbits)
+
+        for p in players:
+            turn_key = cls._get_player_key(p)
+            while True:
+                random = getrandbits(randbits)
+                if random not in bits_so_far:
+                    cls._z_keys[turn_key] = random
+                    bits_so_far.add(random)
+                    break
+
+    @classmethod
+    def _add_unique_randbits_for_key(
+        cls,
+        set_bits: set[int],
+        key: str,
+        randbits: int = 64,
+    ) -> None:
+        """helper adds unique randbits for each key"""
+        while True:
+            random = getrandbits(randbits)
+            if random not in set_bits:
+                cls._z_keys[key] = random
+                set_bits.add(random)
+                return
 
     @classmethod
     def _calc_root_hash(cls, root: "Node") -> int:
-        """calculate hash of node if root"""
+        """
+        calculate hash of node if root
+        
+        :param root: node that hash needs to be created for
+        :type root: "Node"
+        :return: returns hash representing game state
+        :rtype: int
+        """
         board = root.board
         z_hash = 0
         for pc in board.get_pieces():
@@ -152,16 +219,30 @@ class Node:
         player_key = cls._z_keys[cls._get_player_key(board.current_player)]
         z_hash ^= player_key
         return z_hash
-
+    
     @classmethod
-    def _calc_incremental_hash(
+    def calc_incremental_hash(
         cls,
         parent: "Node",
         piece_to_move: Piece,
         move_opt: MoveOption,
         new_board: Board
         ) -> int:
-        """calculate hash for node if is not root (has parents)"""
+        """
+        calculates hash for node if is not root (has parents)
+        
+        :param parent: node that this child came from
+        :type parent: "Node"
+        :param piece_to_move: piece that has moved on parent board
+        :type piece_to_move: Piece
+        :param move_opt: move made on the piece to move 
+        :type move_opt: MoveOption
+        :param new_board: board state of node we are calculating
+        :type new_board: Board
+        :return: return incremented hash for new node using parent
+        :rtype: int
+        """
+        # make xor changes to parent hash to avoid full recalculation
         z_hash = parent.z_hash
         # remove piece from old position
         old_pc_key = cls.get_piece_key(piece_to_move)
@@ -179,52 +260,77 @@ class Node:
         moved_pc_key = cls.get_piece_key(moved_pc, move_opt.position)
         z_hash ^= cls._z_keys[moved_pc_key]
         return z_hash
-
+    
     def is_defended_by(self, player: Player, position: Position) -> bool:
-        """returns true if `position` is defended by another piece"""
+        """
+        returns true if `position` is defended by another piece
+        
+        :param player: player we want to check is defending position
+        :type player: Player
+        :param position: position to check defence
+        :type position: Position
+        :return: returns true if position is defended
+        :rtype: bool
+        """
         return position in self.attacks_by(player)
 
     def attacks_by(self, player: Player) -> set[Position]:
-        """gathers and returns all square positions player attacks"""
+        """
+        gathers and returns all square positions player attacks
+        
+        :param player: player we are checking attacks of
+        :type player: Player
+        :return: set of all positions player attacks
+        :rtype: set[Position]
+        """
         key = player.name
         if key not in self._attacked_by:
             attacks = set()
-            for pc in self.board.get_player_pieces(player):
+            for pc in self.board.get_player_pieces(player = player):
                 for mv in pc.get_move_options():
                     if getattr(mv, "captures", None):
                         attacks.update(mv.captures)
                     attacks.add(mv.position)
             self._attacked_by[key] = attacks
         return self._attacked_by[key]
-
+    
     def get_legal_moves(self) -> list[tuple[Piece, MoveOption]]:
         """returns cached moves or generates and caches legal moves, updates king position"""
         if self._cached_moves:
             return self._cached_moves
+
         legal: list[tuple[Piece, MoveOption]] = []
         own_king = self.kings[self.current_player.name]
-        if self.parents:
-            opponents_attacks = self.attacks_by(self.previous_player)
-        else:
-            opponents_attacks = set()
+
+        # Attacks from the opponent (empty set for the root)
+        opponents_attacks = self.attacks_by(self.previous_player) if self.parents else set()
+
         for pc in self.board.get_player_pieces(self.current_player):
             for mv in pc.get_move_options():
                 if isinstance(pc, King):
+                    # king may never step onto a square attacked by the opponent
                     if mv.position in opponents_attacks:
                         continue
+                    legal.append((pc, mv))
+                    continue
+                # simulate the move and verify the king is still safe
+                tmp_board = self.board.clone()
+                tmp_pc = tmp_board[pc.position].piece
+                tmp_pc.move(mv)
+                # Find the king after the move
+                if tmp_pc is own_king:
+                    tmp_king = tmp_board[mv.position].piece
                 else:
-                    if (own_king.position in opponents_attacks
-                        and own_king.position != mv.position):
-                        tmp_board = self.board.clone()
-                        tmp_pc = tmp_board[pc.position].piece
-                        tmp_pc.move(mv)
-                        tmp_king = tmp_board[own_king].piece
-                        if tmp_king.is_attacked():
-                            continue
+                    tmp_king = tmp_board[own_king.position].piece
+
+                if tmp_king.is_attacked():
+                    continue
+
                 legal.append((pc, mv))
+
         self._cached_moves = legal
         return self._cached_moves
-
+    
     def is_terminal(self) -> bool:
         """return true if node is terminal"""
         if not self._is_terminal:
@@ -233,15 +339,15 @@ class Node:
 
     def expand(self) -> None:
         """generates children lazily one depth lower than this node or if already generated links"""
-        # if node is already expanded or is terminal dont expand
         if self.children or self.is_terminal():
             return
         parent_depth, _, _ = Node.get_entry_in_tt(self.z_hash)
+        parent_depth = 0 if parent_depth is None else parent_depth
         for pc, mv in self.get_legal_moves():
             new_board = self.board.clone()
             new_pc = new_board[pc.position].piece
             new_pc.move(mv)
-            child_hash = Node._calc_incremental_hash(self, pc, mv, new_board)
+            child_hash = Node.calc_incremental_hash(self, pc, mv, new_board)
             depth, _, _ = Node.get_entry_in_tt(child_hash)
             if depth is not None:
                 child = Node(new_board, parent=self, move=(pc, mv), z_hash=child_hash)
@@ -252,36 +358,50 @@ class Node:
                 board=new_board,
                 parent=self,
                 move=(pc, mv),
-                z_hash=child_hash
+                z_hash=child_hash,
             )
             Node.add_entry_in_tt(child, depth=parent_depth + 1, value=0, flag="EXACT")
             if isinstance(pc, King):
                 child.kings[pc.player.name] = new_pc
             self.children.append(child)
 
-
 class Search:
     """
     logic to evaluate game states in perspective of agent_player to find best move
     """
-    MAP_PIECE_TO_VALUE = {"king": 20, "queen":9, "right":8, "knight":4, "bishop":3, "pawn":1}
-    MAP_PIECE_CENTER_TO_VALUE = {"king": -5, "queen":1, "right":2, "knight":4, "bishop":7, "pawn":8}
+    MAP_PIECE_TO_VALUE = {
+        "king": 0,
+        "queen": 12,
+        "right": 8,
+        "knight": 6,
+        "bishop": 5,
+        "pawn": 1,
+    }
+    MAP_PIECE_CENTER_TO_VALUE = {
+        "king": -5,
+        "queen": 2,
+        "right": 2,
+        "knight": 4,
+        "bishop": 6,
+        "pawn": 8,
+    }
     CENTRE_SQUARES = {(2, 2), (1, 2), (2, 1), (3, 2), (2, 3)}
-    # heuristics
     bonus = {
-        "centre": 0.06,
-        "mobility" : 0.05,
-        "safety": -0.45,
-        "king_safety": -3,
-        "enemy_king_safety": 2,
-        "capture": 1.1,
-        "check": 0.45,
-        "checkmate": 500,
-        "promotion": 2,
-        "unsafe-move": -0.7,
-        "protected": 0.8,
+        "centre": 0.04,
+        "development": 0.12,
+        "pawn_progress": 0.08,
+        "mobility" : 0.03,
+        "protected": 0.25,
+        "safety": -0.3,
+        "king_safety": -4,
+        "enemy_king_safety": 3.5,
+        "capture": 1.4,
+        "promotion": 3,
+        "check": 0.6,
+        "checkmate": 2000,
+        "unsafe_move": -2,
         }
-
+    
     def __init__(self, root_board: Board, agent_player: Player):
         self.root = Node(root_board)
         self.agent_player = agent_player
@@ -299,10 +419,20 @@ class Search:
         if best_child is None:
             return None, None
         return best_child.move
-
-    def alphabeta(self, node: Node, alpha: float, beta: float, depth: int) -> float:
+    
+    def alphabeta(self, node:Node, alpha: float, beta: float, depth) -> float:
         """
-        attempts to return highest guaranteed score agent_player can make
+        attempts to return highest guaranteed score agent can make
+        
+        :param node: node that is to be mini-maxed next
+        :type node: Node
+        :param alpha: the best score found so far
+        :type alpha: float
+        :param beta: the worst score found so far
+        :type beta: float
+        :param depth: current depth of game tree expansion
+        :return: highest guaranteed score
+        :rtype: float
         """
         entry_depth, entry_val, entry_flag = Node.get_entry_in_tt(node.z_hash)
         if entry_depth is not None and entry_depth >= depth:
@@ -321,8 +451,8 @@ class Search:
             return val
 
         children = self.get_ordered_children(node)
-
         is_maximising = node.current_player == self.agent_player
+
         if is_maximising:
             best = -inf
             for child in children:
@@ -344,98 +474,137 @@ class Search:
 
         Node.add_entry_in_tt(node, depth=depth, value=best, flag=flag)
         return best
-
+    
     def evaluate(self, node: Node) -> float:
         """return score for game state in agent_player perspective"""
         if node.is_terminal():
-            if (node.kings[node.current_player.name].is_attacked()
-                or not node.get_legal_moves()):
-                return (inf if node.current_player != self.agent_player
-                        else -inf)  # win for whoever just played move
+            if (
+                node.kings[node.current_player.name].is_attacked()
+                or not node.get_legal_moves()
+            ):
+                return inf if node.current_player != self.agent_player else -inf
             return 0.0
-        # material + centre control + safety
+        
         material = centre = safety = 0.0
         opponent = node.previous_player
         opponent_attacks = node.attacks_by(opponent)
         for pc in node.board.get_pieces():
             name = pc.name.lower()
-            val = self.MAP_PIECE_TO_VALUE.get(name, 0)
-            material += val if pc.player == self.agent_player else -val
+            value = self.MAP_PIECE_TO_VALUE.get(name, 0)
 
+            # material (+ for agent, - for opponent)
+            material += value if pc.player == self.agent_player else -value
+
+            # centre control
             if (pc.position.x, pc.position.y) in Search.CENTRE_SQUARES:
-                bonus = Search.bonus["centre"] * Search.MAP_PIECE_CENTER_TO_VALUE[pc.name.lower()]
-                centre += bonus if pc.player == self.agent_player else -bonus
+                centre += (
+                    Search.bonus["centre"] * Search.MAP_PIECE_CENTER_TO_VALUE[name]
+                ) if pc.player == self.agent_player else - (
+                    Search.bonus["centre"] * Search.MAP_PIECE_CENTER_TO_VALUE[name]
+                )
 
+            # safety - penalise our pieces that are currently threatened
             if pc.player == self.agent_player and pc.position in opponent_attacks:
-                safety += (self.bonus["safety"] *
-                        Search.MAP_PIECE_TO_VALUE[pc.name.lower()])
+                safety += self.bonus["safety"] * value   # bonus safety is negative
 
-        # mobility
+            # development
+            if (pc.player == self.agent_player and not isinstance(pc, King)
+                and ((pc.player.name == "white" and pc.position.y > 0)
+                    or pc.player.name == "black" and pc.position.y < 4)):
+                centre += Search.bonus["development"]
+            # pawn progress
+            if name == "pawn" and pc.player == self.agent_player:
+                progress = pc.position.y if pc.player.name == "white" else (4 - pc.position.y)
+                centre += progress * Search.bonus["pawn_progress"]
+
+
+        # mobility - number of legal moves for the side that is about to move
         mobility = len(node.get_legal_moves()) * Search.bonus["mobility"]
-        if node.current_player != self.agent_player:
-            mobility = -mobility
+        mobility = mobility if node.current_player == self.agent_player else -mobility
 
         # king safety
         king_safety = 0.0
-        agent_player_king = node.kings[self.agent_player.name]
-        enemy_king = node.kings[opponent.name]
-        if agent_player_king.is_attacked():
-            king_safety -= Search.bonus["king_safety"]
-        if enemy_king.is_attacked():
-            king_safety += Search.bonus["enemy_king_safety"]
+        my_king = node.kings[self.agent_player.name]
+        opp_king = node.kings[opponent.name]
 
-        # move bonus
+        if my_king.is_attacked():
+            king_safety -= Search.bonus["king_safety"]
+        if opp_king.is_attacked():
+            # If opponent king is in check AND has no escape -> check‑mate #? should already be accounted for when checking terminal
+            if not opp_king.get_move_options():
+                king_safety += Search.bonus["checkmate"]
+            else:
+                king_safety += Search.bonus["enemy_king_safety"]
+
+
         move_bonus = 0.0
         if node.move:
-            piece, move = node.move
-            if getattr(move, "captures", None):
-                net_gain = 0
-                for cap_sq in move.captures:
-                    captured = node.board[cap_sq].piece
-                    if captured:
-                        attack_val = self.MAP_PIECE_TO_VALUE.get(piece.name.lower())
-                        victim_val = self.MAP_PIECE_TO_VALUE.get(captured.name.lower())
-                        net_gain += victim_val - attack_val
-                move_bonus += net_gain * Search.bonus["capture"]
-            if piece.name.lower() == "pawn":
-                if move.position.y in (0, 4):
-                    move_bonus += Search.bonus["promotion"]
-            if enemy_king.is_attacked():
+            piece, mv = node.move
+            piece_val = self.MAP_PIECE_TO_VALUE.get(piece.name.lower(), 0)
+
+            if getattr(mv, "captures", None):
+                capture_delta = 0
+                for cap_sq in mv.captures:
+                    victim = node.board[cap_sq].piece
+                    if victim:
+                        victim_val = self.MAP_PIECE_TO_VALUE.get(victim.name.lower(), 0)
+                        capture_delta += (victim_val - piece_val)
+
+                move_bonus += (Search.bonus["capture"] * capture_delta)
+
+            # promote
+            if piece.name.lower() == "pawn" and mv.position.y in (0, 4):
+                move_bonus += Search.bonus["promotion"]
+
+            # checking
+            if opp_king.is_attacked():
                 move_bonus += Search.bonus["check"]
-            if move.position in opponent_attacks:
-                move_bonus += Search.bonus["unsafe-move"]
-            if node.is_defended_by(self.agent_player, piece.position):
+
+            # moving to a position can be captured
+            if mv.position in opponent_attacks:
+                # penalty grows with the value of the piece that is being moved
+                move_bonus += Search.bonus["unsafe_move"] * piece_val
+
+            # move into a defended square
+            if node.is_defended_by(self.agent_player, mv.position):
                 move_bonus += Search.bonus["protected"]
-        return material + centre + safety + mobility + king_safety + move_bonus
+
+        return (material + centre + safety + mobility +
+                king_safety + move_bonus)
 
     def _score_child(self, child: Node) -> float:
         """aggressive evaluation for what nodes to expand first, agent_player independent evaluation"""
         if child.move is None:
             return 0
-        pc, mv = child.move
+        piece, mv = child.move
         opponent = child.previous_player
         opponent_attacks = child.attacks_by(opponent)
-        enemy_king = child.kings[opponent.name]
+        opp_king = child.kings[opponent.name]
 
-        bonus = 0
-        attack_val = self.MAP_PIECE_TO_VALUE.get(pc.name.lower(), 0)
+        bonus = 0.0
+        piece_val = self.MAP_PIECE_TO_VALUE.get(piece.name.lower(), 0)
+
         if getattr(mv, "captures", None):
-            net_gain = 0
+            delta = 0
             for cap_sq in mv.captures:
-                captured = child.board[cap_sq].piece
-                if captured:
-                    victim_val = self.MAP_PIECE_TO_VALUE.get(captured.name.lower(), 0)
-                    net_gain += victim_val - attack_val
-            bonus += net_gain * Search.bonus["capture"] * 1.4
-        if pc.name.lower() == "pawn":
-            if mv.position.y in (0, 4):
-                bonus += Search.bonus["promotion"] * 1.2
-        if enemy_king.is_attacked():
+                victim = child.board[cap_sq].piece
+                if victim:
+                    victim_val = self.MAP_PIECE_TO_VALUE.get(victim.name.lower(), 0)
+                    delta += victim_val - piece_val
+            bonus += delta * Search.bonus["capture"] * 1.4
+
+        if piece.name.lower() == "pawn" and mv.position.y in (0, 4):
+            bonus += Search.bonus["promotion"] * 1.2
+
+        if opp_king.is_attacked():
             bonus += Search.bonus["check"] * 1.1
+
         if mv.position in opponent_attacks:
-            bonus += Search.bonus["unsafe-move"] * attack_val * 1.3
-        if child.is_defended_by(self.agent_player, pc.position):
-            bonus += Search.bonus["protected"] * 1
+            bonus += Search.bonus["unsafe-move"] * piece_val * 1.3
+
+        if child.is_defended_by(self.agent_player, mv.position):
+            bonus += Search.bonus["protected"] * 1.0
+
         return bonus
 
     def get_ordered_children(self, node: Node) -> list[Node]:
@@ -449,10 +618,7 @@ class Search:
         return node.children
 
 
-def agent(board: Board, player: Player, var: list[Any]) -> tuple[Piece | None, MoveOption | None]:
-    """
-    Wrapper required by the platform – creates a Search instance and asks for the best move.
-    """
+def agent(board, player, var):
     print(f"Ply: {var[0]}")
     ai = Search(board, player)
     piece, move_opt = ai.search(3)

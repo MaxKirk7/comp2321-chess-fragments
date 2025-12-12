@@ -15,22 +15,24 @@ class Search:
     """
     logic to evaluate game states in perspective of agent_player to find best move
     """
-    MAP_PIECE_TO_VALUE = {"king": 20, "queen":11, "right":10, "knight":6, "bishop":4, "pawn":1}
-    MAP_PIECE_CENTER_TO_VALUE = {"king": -10, "queen":2, "right":2, "knight":5, "bishop":8, "pawn":16}
+    MAP_PIECE_TO_VALUE = {"king": 0, "queen":12, "right":8, "knight":6, "bishop":5, "pawn":1}
+    MAP_PIECE_CENTER_TO_VALUE = {"king": -5, "queen":2, "right":2, "knight":4, "bishop":6, "pawn":8}
     CENTRE_SQUARES = {(2, 2), (1, 2), (2, 1), (3, 2), (2, 3)}
     # heuristics
     bonus = {
-        "centre": 0.02,
-        "mobility" : 0.05,
-        "safety": -0.45,
-        "king_safety": 3,
-        "enemy_king_safety": 2,
-        "capture": 1.1,
-        "check": 0.45,
-        "checkmate": 1000,
-        "promotion": 2.3,
-        "unsafe-move": -1.2,
-        "protected": 1.1,
+        "centre": 0.04,
+        "development": 0.12,
+        "pawn_progress": 0.08,
+        "mobility" : 0.03,
+        "protected": 0.25,
+        "safety": -0.3,
+        "king_safety": -4,
+        "enemy_king_safety": 3.5,
+        "capture": 1.4,
+        "promotion": 3,
+        "check": 0.6,
+        "checkmate": 2000,
+        "unsafe_move": -2,
         }
 
     def __init__(self, root_board: Board, agent_player: Player):
@@ -127,19 +129,32 @@ class Search:
 
             # centre control
             if (pc.position.x, pc.position.y) in Search.CENTRE_SQUARES:
-                centre_bonus = (Search.bonus["centre"] *
-                            Search.MAP_PIECE_CENTER_TO_VALUE[name])
-                centre += centre_bonus if pc.player == self.agent_player else -centre_bonus
+                centre += (
+                    Search.bonus["centre"] * Search.MAP_PIECE_CENTER_TO_VALUE[name]
+                ) if pc.player == self.agent_player else - (
+                    Search.bonus["centre"] * Search.MAP_PIECE_CENTER_TO_VALUE[name]
+                )
 
             # safety - penalise our pieces that are currently threatened
             if pc.player == self.agent_player and pc.position in opponent_attacks:
                 safety += self.bonus["safety"] * value   # bonus safety is negative
 
+            # development
+            if (pc.player == self.agent_player and not isinstance(pc, King)
+                and ((pc.player.name == "white" and pc.position.y > 0)
+                    or pc.player.name == "black" and pc.position.y < 4)):
+                centre += Search.bonus["development"]
+            # pawn progress
+            if name == "pawn" and pc.player == self.agent_player:
+                progress = pc.position.y if pc.player.name == "white" else (4 - pc.position.y)
+                centre += progress * Search.bonus["pawn_progress"]
+
+
         # mobility - number of legal moves for the side that is about to move
         mobility = len(node.get_legal_moves()) * Search.bonus["mobility"]
         mobility = mobility if node.current_player == self.agent_player else -mobility
 
-
+        # king safety
         king_safety = 0.0
         my_king = node.kings[self.agent_player.name]
         opp_king = node.kings[opponent.name]
@@ -160,13 +175,14 @@ class Search:
             piece_val = self.MAP_PIECE_TO_VALUE.get(piece.name.lower(), 0)
 
             if getattr(mv, "captures", None):
-                # reward any capture
-                capt_gain = 0
+                capture_delta = 0
                 for cap_sq in mv.captures:
-                    captured = node.board[cap_sq].piece
-                    if captured:
-                        capt_gain += self.MAP_PIECE_TO_VALUE.get(captured.name.lower(), 0)
-                move_bonus += capt_gain * Search.bonus["capture"]
+                    victim = node.board[cap_sq].piece
+                    if victim:
+                        victim_val = self.MAP_PIECE_TO_VALUE.get(victim.name.lower(), 0)
+                        capture_delta += (victim_val - piece_val)
+
+                move_bonus += (Search.bonus["capture"] * capture_delta)
 
             # promote
             if piece.name.lower() == "pawn" and mv.position.y in (0, 4):
@@ -179,7 +195,7 @@ class Search:
             # moving to a position can be captured
             if mv.position in opponent_attacks:
                 # penalty grows with the value of the piece that is being moved
-                move_bonus += Search.bonus["unsafe-move"] * piece_val
+                move_bonus += Search.bonus["unsafe_move"] * piece_val
 
             # move into a defended square
             if node.is_defended_by(self.agent_player, mv.position):
@@ -190,7 +206,8 @@ class Search:
 
 
     def _score_child(self, child: Node) -> float:
-        """aggressive evaluation for what nodes to expand first, agent_player independent evaluation"""
+        """aggressive evaluation for what nodes to expand first, agent_player independent evaluation
+        purpose to expand most promising moves first to prune as many branches as possible"""
         if child.move is None:
             return 0
         piece, mv = child.move
@@ -199,35 +216,27 @@ class Search:
         opp_king = child.kings[opponent.name]
 
         move_bonus = 0.0
-        if child.move:
-            piece, mv = child.move
-            piece_val = self.MAP_PIECE_TO_VALUE.get(piece.name.lower(), 0)
-
-            if getattr(mv, "captures", None):
-                # reward any capture
-                capt_gain = 0
-                for cap_sq in mv.captures:
-                    captured = child.board[cap_sq].piece
-                    if captured:
-                        capt_gain += self.MAP_PIECE_TO_VALUE.get(captured.name.lower(), 0)
-                move_bonus += capt_gain * Search.bonus["capture"] * 1.3
-
-            # promote
-            if piece.name.lower() == "pawn" and mv.position.y in (0, 4):
-                move_bonus += Search.bonus["promotion"] * 1.2
-
-            # checking
-            if opp_king.is_attacked():
-                move_bonus += Search.bonus["check"] * 1.1
-
-            # moving to a position can be captured
-            if mv.position in opponent_attacks:
-                # penalty grows with the value of the piece that is being moved
-                move_bonus += Search.bonus["unsafe-move"] * piece_val * 1.2
-
-            # move into a defended square
-            if child.is_defended_by(self.agent_player, mv.position):
-                move_bonus += Search.bonus["protected"] * 1.2
+        piece_val = self.MAP_PIECE_TO_VALUE.get(piece.name.lower(), 0)
+        if getattr(mv, "captures", None):
+            delta = 0
+            for cap_sq in mv.captures:
+                victim = child.board[cap_sq].piece
+                if victim:
+                    victim_val = self.MAP_PIECE_TO_VALUE.get(victim.name.lower(), 0)
+                    delta += (victim_val - piece_val)
+            move_bonus += delta * Search.bonus["capture"] * 1.4
+        # promotion
+        if piece.name.lower() == "pawn" and mv.position.y in (0,4):
+            move_bonus += Search.bonus["promotion"] * 1.2
+        # checks
+        if opp_king.is_attacked():
+            move_bonus += Search.bonus["check"] * 1.1
+        # unsafe move
+        if mv.position in opponent_attacks:
+            move_bonus += Search.bonus["unsafe_move"] * piece_val * 1.3
+        # protected
+        if child.is_defended_by(self.agent_player, mv.position):
+            move_bonus += Search.bonus["protected"] * 1.0
         return move_bonus
 
 

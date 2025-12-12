@@ -206,3 +206,4 @@ class Search:
                 child.order_score = self._score_child(child)
         node.children.sort(key= lambda n: n.order_score, reverse=True)
         return node.children
+    
